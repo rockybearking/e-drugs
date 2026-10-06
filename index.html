@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>e약은요 - 의약품 개요정보 검색</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+    <header class="header">
+        <h1>💊 e약은요 의약품 검색</h1>
+        <p>궁금한 약 이름이나 키워드를 입력해보세요.</p>
+    </header>
+
+    <!-- 검색 입력 영역 -->
+    <section class="search-section">
+        <div class="search-box">
+            <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="약 이름 또는 키워드 입력 (예: 활명수, 아스피린, 타이레놀, 신신티눈고)"
+                    autocomplete="off"
+            >
+            <button id="searchBtn">검색</button>
+        </div>
+    </section>
+
+    <!-- 검색 진행 및 건수 알림 -->
+    <div id="statusMessage" class="status-message"></div>
+
+    <!-- 검색 결과 카드 목록 -->
+    <main id="resultList" class="card-grid"></main>
+</div>
+
+<!-- 상세 정보 모달 팝업 -->
+<div id="detailModal" class="modal hidden">
+    <div class="modal-content">
+        <button id="closeModalBtn" class="close-btn">&times;</button>
+        <div id="modalBody"></div>
+    </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
