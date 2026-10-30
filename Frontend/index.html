@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <title>알약이가 (e-Drug Care) | 의약품 통합 검색</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- 상단 글로벌 헤더 -->
+    <header class="top-header">
+        <div class="header-inner">
+            <div class="brand-area" id="brandLogo" role="button" tabindex="0" aria-label="메인 화면으로 이동">
+                <span class="brand-icon">💊</span>
+                <div class="brand-title-row">
+                    <h1 class="brand-title">알약이가 <span class="brand-sub">e-Drug Care</span></h1>
+                </div>
+            </div>
+
+            <!-- PC 네비게이션 탭 -->
+            <nav class="desktop-nav" aria-label="주요 메뉴">
+                <button type="button" class="nav-btn active" data-tab="tab-unified">
+                    <span class="nav-icon">🔍</span> 통합 스마트 검색
+                </button>
+                <button type="button" class="nav-btn" data-tab="tab-permission">
+                    <span class="nav-icon">📋</span> 허가·성분 전문조회
+                </button>
+                <button type="button" class="nav-btn" data-tab="tab-pillbox">
+                    <span class="nav-icon">🧰</span> 내 약통 <span id="pillboxCountBadge" class="count-pill">0</span>
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <!-- ==========================================================
+             [탭 1] 메인(홈) & 통합 스마트 검색 (낱알 식별기 통합)
+        =========================================================== -->
+        <section id="tab-unified" class="tab-panel active is-home">
+            <div class="hero-card unified-search-card">
+                <div class="unified-search-bar">
+                    <select id="unifiedFieldSelect" class="search-select" aria-label="검색 조건">
+                        <option value="itemName">약 이름 (품목명)</option>
+                        <option value="efcy">증상 · 효능 키워드</option>
+                        <option value="entp">제약사 (업체명)</option>
+                    </select>
+                    <input
+                        type="text"
+                        id="searchInput"
+                        placeholder="약 이름, 증상 또는 제약사를 입력하세요 (아래 외형 조건만으로도 검색 가능)"
+                        autocomplete="off"
+                    >
+                    <button type="button" id="searchBtn" class="primary-btn">통합 검색</button>
+                </div>
+
+                <!-- 통합 낱알 식별기 영역 (홈에서는 펼침, 검색 결과 이후에는 접힘 기본 + 펼침/접음 토글) -->
+                <div id="grainFilterWrapper" class="grain-filter-wrapper">
+                    <div class="grain-filter-toolbar">
+                        <div class="grain-toolbar-left">
+                            <span class="grain-toolbar-label">낱알 식별 조건</span>
+                            <div id="activeFilterBadges" class="active-filter-badges"></div>
+                        </div>
+                        <div class="grain-toolbar-right">
+                            <button type="button" id="resetGrainFilterBtn" class="filter-reset-btn">다시 입력</button>
+                            <button
+                                type="button"
+                                id="toggleGrainFilterBtn"
+                                class="filter-toggle-btn hidden"
+                                aria-expanded="true"
+                                aria-controls="grainFilterBody"
+                            >
+                                외형 조건 접기 ▲
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="grainFilterBody" class="grain-filter-body">
+                        <div class="id-form-grid">
+                            <!-- 좌측 컬럼: 식별문자, 제형, 모양 -->
+                            <div class="id-form-col">
+                                <div class="id-field-row">
+                                    <div class="id-field-label">식별문자</div>
+                                    <div class="id-field-control imprint-control">
+                                        <input
+                                            type="text"
+                                            id="grainPrintInput"
+                                            class="id-text-input"
+                                            placeholder="알약 앞/뒤 문자 (예: TY, 500)"
+                                            autocomplete="off"
+                                        >
+                                        <label class="chk-item exact-chk">
+                                            <input type="checkbox" id="grainPrintExact">
+                                            <span>일치</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="id-field-row">
+                                    <div class="id-field-label">제형</div>
+                                    <div class="id-field-control" id="formCheckGroup" data-group="forms">
+                                        <div class="chk-all-line">
+                                            <label class="chk-item">
+                                                <input type="checkbox" value="전체" data-role="all" checked>
+                                                <span>전체</span>
+                                            </label>
+                                        </div>
+                                        <div class="chk-options-inline">
+                                            <label class="chk-item"><input type="checkbox" value="정제"><span>정제</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="경질캡슐"><span>경질캡슐</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="연질캡슐"><span>연질캡슐</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="구강붕해필름"><span>구강붕해필름</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="id-field-row">
+                                    <div class="id-field-label">모양</div>
+                                    <div class="id-field-control" id="shapeCheckGroup" data-group="shapes">
+                                        <div class="chk-all-line">
+                                            <label class="chk-item">
+                                                <input type="checkbox" value="전체" data-role="all" checked>
+                                                <span>전체</span>
+                                            </label>
+                                        </div>
+                                        <div class="chk-options-grid cols-4">
+                                            <label class="chk-item"><input type="checkbox" value="원형"><span>원형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="타원형"><span>타원형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="장방형"><span>장방형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="반원형"><span>반원형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="삼각형"><span>삼각형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="사각형"><span>사각형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="마름모형"><span>마름모형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="오각형"><span>오각형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="육각형"><span>육각형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="팔각형"><span>팔각형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="기타"><span>기타</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 우측 컬럼: 분할선(앞/뒤), 색상 -->
+                            <div class="id-form-col">
+                                <div class="id-field-row">
+                                    <div class="id-field-label">분할선</div>
+                                    <div class="id-field-control line-split-stack">
+                                        <div class="line-side-row" id="lineFrontCheckGroup" data-group="lineFront">
+                                            <span class="side-tag">[앞]</span>
+                                            <label class="chk-item"><input type="checkbox" value="전체" data-role="all" checked><span>전체</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="없음"><span>없음</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="+"><span>'+' 형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="-"><span>'-' 형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="기타"><span>기타</span></label>
+                                        </div>
+                                        <div class="line-side-row" id="lineBackCheckGroup" data-group="lineBack">
+                                            <span class="side-tag">[뒤]</span>
+                                            <label class="chk-item"><input type="checkbox" value="전체" data-role="all" checked><span>전체</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="없음"><span>없음</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="+"><span>'+' 형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="-"><span>'-' 형</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="기타"><span>기타</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="id-field-row">
+                                    <div class="id-field-label">색상</div>
+                                    <div class="id-field-control" id="colorCheckGroup" data-group="colors">
+                                        <div class="chk-all-line">
+                                            <label class="chk-item">
+                                                <input type="checkbox" value="전체" data-role="all" checked>
+                                                <span>전체</span>
+                                            </label>
+                                        </div>
+                                        <div class="chk-options-grid cols-4">
+                                            <label class="chk-item"><input type="checkbox" value="하양"><i class="color-dot c-white"></i><span>하양</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="노랑"><i class="color-dot c-yellow"></i><span>노랑</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="주황"><i class="color-dot c-orange"></i><span>주황</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="분홍"><i class="color-dot c-pink"></i><span>분홍</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="빨강"><i class="color-dot c-red"></i><span>빨강</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="갈색"><i class="color-dot c-brown"></i><span>갈색</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="연두"><i class="color-dot c-lightgreen"></i><span>연두</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="초록"><i class="color-dot c-green"></i><span>초록</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="청록"><i class="color-dot c-teal"></i><span>청록</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="파랑"><i class="color-dot c-blue"></i><span>파랑</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="남색"><i class="color-dot c-navy"></i><span>남색</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="자주"><i class="color-dot c-magenta"></i><span>자주</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="보라"><i class="color-dot c-purple"></i><span>보라</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="회색"><i class="color-dot c-gray"></i><span>회색</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="검정"><i class="color-dot c-black"></i><span>검정</span></label>
+                                            <label class="chk-item"><input type="checkbox" value="투명"><i class="color-dot c-clear"></i><span>투명</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 통합 검색 이후에만 표시되는 결과 영역 -->
+            <div id="unifiedResultsSection" class="results-section hidden">
+                <div id="unifiedStatsBar" class="stats-summary-bar hidden">
+                    <div class="stat-box">
+                        <span class="stat-label">통합 매칭 결과</span>
+                        <strong id="statMergedCount" class="stat-num highlight">0건</strong>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-box">
+                        <span class="stat-label">e약은요 개요정보</span>
+                        <strong id="statEasyCount" class="stat-num">0건</strong>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">낱알식별 외형정보</span>
+                        <strong id="statGrainCount" class="stat-num">0건</strong>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">식약처 제품허가정보</span>
+                        <strong id="statPrmsnCount" class="stat-num">0건</strong>
+                    </div>
+                </div>
+
+                <div id="statusMessage" class="status-message hidden"></div>
+                <div id="resultList" class="card-grid"></div>
+                <nav id="unifiedPagination" class="pagination-nav hidden" aria-label="검색 결과 페이지 이동"></nav>
+            </div>
+        </section>
+
+        <!-- ==========================================================
+             [탭 2] 허가·성분 전문조회
+        =========================================================== -->
+        <section id="tab-permission" class="tab-panel">
+            <div class="hero-card compact">
+                <div class="hero-text">
+                    <h2>의약품 제품 허가·주성분 조회</h2>
+                    <p>전문의약품과 일반의약품의 주성분, 약효분류, 품목허가일, 저장방법 등 허가 정보를 조회합니다.</p>
+                </div>
+
+                <div class="unified-search-bar">
+                    <select id="prmsnSpcltySelect" class="search-select" aria-label="전문/일반 구분">
+                        <option value="전체">전문·일반 전체</option>
+                        <option value="일반의약품">일반의약품</option>
+                        <option value="전문의약품">전문의약품</option>
+                    </select>
+                    <input
+                        type="text"
+                        id="prmsnSearchInput"
+                        placeholder="품목명 입력 (예: 아모디핀, 리피토, 오메프라졸, 포도당...)"
+                        autocomplete="off"
+                    >
+                    <button type="button" id="prmsnSearchBtn" class="primary-btn">허가정보 조회</button>
+                </div>
+            </div>
+
+            <div id="prmsnStatusMessage" class="status-message hidden"></div>
+            <div id="prmsnResultList" class="card-grid"></div>
+            <nav id="prmsnPagination" class="pagination-nav hidden" aria-label="허가 조회 페이지 이동"></nav>
+        </section>
+
+        <!-- ==========================================================
+             [탭 3] 내 약통 & 안전 복약 리포트
+        =========================================================== -->
+        <section id="tab-pillbox" class="tab-panel">
+            <div class="pillbox-header-card">
+                <div class="hero-text">
+                    <h2>🧰 내 약통 & 주성분 중복·병용 안전 리포트</h2>
+                    <p>복용 중이거나 상비약으로 보관 중인 약을 등록하면 주성분 중복 위험과 주요 주의사항을 자동으로 분석합니다.</p>
+                </div>
+            </div>
+
+            <div id="safetyReportBox" class="safety-report-box"></div>
+            <div id="pillboxList" class="card-grid"></div>
+        </section>
+    </main>
+
+    <!-- 모바일 하단 고정 탭 네비게이션 바 -->
+    <nav class="mobile-bottom-nav" aria-label="모바일 하단 메뉴">
+        <button type="button" class="m-nav-btn active" data-tab="tab-unified">
+            <span class="m-icon">🔍</span>
+            <span>통합검색</span>
+        </button>
+        <button type="button" class="m-nav-btn" data-tab="tab-permission">
+            <span class="m-icon">📋</span>
+            <span>허가·성분</span>
+        </button>
+        <button type="button" class="m-nav-btn" data-tab="tab-pillbox">
+            <span class="m-icon">🧰</span>
+            <span>내 약통 <b id="mPillboxCount">0</b></span>
+        </button>
+    </nav>
+
+    <!-- 상세 정보 모달 팝업 -->
+    <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <button type="button" id="closeModalBtn" class="close-btn" aria-label="닫기">&times;</button>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <!-- 토스트 알림 -->
+    <div id="toastNotice" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1189 @@
+/* ==========================================================================
+   알약이가 (e-Drug Care) - PC & 모바일 반응형 디자인 시스템
+   ========================================================================== */
+:root {
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --primary-light: #eff6ff;
+    --teal: #0d9488;
+    --teal-light: #f0fdfa;
+    --purple: #7c3aed;
+    --purple-light: #f5f3ff;
+    --amber: #d97706;
+    --amber-light: #fffbeb;
+    --danger: #dc2626;
+    --danger-light: #fef2f2;
+    --bg-main: #f8fafc;
+    --bg-card: #ffffff;
+    --text-main: #0f172a;
+    --text-sub: #475569;
+    --text-muted: #64748b;
+    --border: #e2e8f0;
+    --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.05);
+    --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08);
+    --radius-lg: 18px;
+    --radius-md: 12px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Malgun Gothic", "Segoe UI", Roboto, sans-serif;
+}
+
+body {
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    min-height: 100vh;
+    padding-bottom: 84px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   상단 글로벌 헤더
+   -------------------------------------------------------------------------- */
+.top-header {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+}
+
+.header-inner {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.brand-area {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 12px;
+    transition: opacity 0.15s ease;
+}
+
+.brand-area:hover {
+    opacity: 0.85;
+}
+
+.brand-area:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 4px;
+}
+
+.brand-icon {
+    font-size: 1.9rem;
+    background: var(--primary-light);
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    border: 1px solid #bfdbfe;
+}
+
+.brand-title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.brand-title {
+    font-size: 1.32rem;
+    font-weight: 800;
+    color: #1e3a8a;
+    letter-spacing: -0.02em;
+}
+
+.brand-sub {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--primary);
+}
+
+/* 데스크탑 탭 메뉴 */
+.desktop-nav {
+    display: flex;
+    gap: 6px;
+    background: #f1f5f9;
+    padding: 5px;
+    border-radius: 14px;
+}
+
+.nav-btn {
+    border: none;
+    background: transparent;
+    padding: 9px 15px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-sub);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.nav-btn:hover {
+    color: var(--primary);
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.nav-btn.active {
+    background: var(--bg-card);
+    color: var(--primary);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}
+
+.count-pill {
+    background: var(--primary);
+    color: #fff;
+    font-size: 0.72rem;
+    padding: 2px 7px;
+    border-radius: 99px;
+}
+
+/* --------------------------------------------------------------------------
+   메인 컨테이너 & 홈(중앙 배치) vs 결과 화면 레이아웃
+   -------------------------------------------------------------------------- */
+.main-container {
+    max-width: 1240px;
+    margin: 22px auto;
+    padding: 0 20px;
+}
+
+.tab-panel {
+    display: none;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.tab-panel.active {
+    display: block;
+}
+
+/* 홈(최초 접속 / 메인 복귀) 상태: 화면 정중앙에 검색 상자 영역만 배치 */
+#tab-unified.active.is-home {
+    min-height: calc(100vh - 135px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 16px 0 36px;
+}
+
+#tab-unified.is-home .unified-search-card {
+    width: 100%;
+    max-width: 1020px;
+    margin-bottom: 0;
+    box-shadow: var(--shadow-md);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 검색 카드 공통 */
+.hero-card,
+.pillbox-header-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-sm);
+}
+
+.hero-text h2 {
+    font-size: 1.35rem;
+    color: var(--text-main);
+    margin-bottom: 6px;
+}
+
+.hero-text p {
+    font-size: 0.9rem;
+    color: var(--text-sub);
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+.pillbox-header-card .hero-text p {
+    margin-bottom: 0;
+}
+
+/* 통합 검색바 */
+.unified-search-bar {
+    display: flex;
+    background: #ffffff;
+    border: 2px solid var(--primary);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.1);
+}
+
+.search-select {
+    border: none;
+    border-right: 1px solid var(--border);
+    background: #f8fafc;
+    padding: 0 16px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text-main);
+    outline: none;
+    cursor: pointer;
+}
+
+.unified-search-bar input {
+    flex: 1;
+    border: none;
+    padding: 15px 18px;
+    font-size: 1rem;
+    outline: none;
+    min-width: 0;
+    color: var(--text-main);
+}
+
+.unified-search-bar input::placeholder {
+    color: #94a3b8;
+}
+
+.primary-btn {
+    background: var(--primary);
+    color: #ffffff;
+    border: none;
+    padding: 0 28px;
+    font-size: 0.98rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+
+.primary-btn:hover {
+    background: var(--primary-dark);
+}
+
+/* --------------------------------------------------------------------------
+   통합 낱알 식별기 체크박스 폼 (3번째 사진 스타일 + 펼침/접음 지원)
+   -------------------------------------------------------------------------- */
+.grain-filter-wrapper {
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+}
+
+.grain-filter-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.grain-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-height: 28px;
+}
+
+.grain-toolbar-label {
+    font-size: 0.9rem;
+    font-weight: 800;
+    color: var(--text-main);
+}
+
+.active-filter-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.active-filter-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.76rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 99px;
+    background: var(--primary-light);
+    color: var(--primary-dark);
+    border: 1px solid #bfdbfe;
+}
+
+.grain-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-reset-btn {
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: var(--text-sub);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.filter-reset-btn:hover {
+    border-color: var(--text-main);
+    color: var(--text-main);
+    background: #f8fafc;
+}
+
+.filter-toggle-btn {
+    border: 1px solid #bfdbfe;
+    background: var(--primary-light);
+    color: var(--primary-dark);
+    padding: 6px 13px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.filter-toggle-btn:hover {
+    background: #dbeafe;
+}
+
+.grain-filter-body {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed #e2e8f0;
+}
+
+.grain-filter-body.collapsed {
+    display: none;
+}
+
+.id-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px 36px;
+    align-items: start;
+}
+
+.id-form-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.id-field-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+.id-field-label {
+    width: 72px;
+    flex-shrink: 0;
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: #1e293b;
+    padding-top: 5px;
+}
+
+.id-field-control {
+    flex: 1;
+    min-width: 0;
+}
+
+.imprint-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.id-text-input {
+    flex: 1;
+    min-width: 170px;
+    max-width: 280px;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    color: var(--text-main);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.id-text-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.chk-all-line {
+    margin-bottom: 7px;
+}
+
+.chk-options-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+}
+
+.chk-options-grid.cols-4 {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px 10px;
+}
+
+.line-split-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 3px;
+}
+
+.line-side-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+}
+
+.side-tag {
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: #334155;
+    margin-right: 2px;
+}
+
+.chk-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1.35;
+}
+
+.chk-item:hover {
+    color: var(--primary);
+}
+
+.chk-item input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--primary);
+    cursor: pointer;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.chk-item input[type="checkbox"]:checked ~ span {
+    color: var(--primary-dark);
+    font-weight: 700;
+}
+
+/* 색상 미니 도트 */
+.color-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    display: inline-block;
+    border: 1px solid rgba(15, 23, 42, 0.22);
+    flex-shrink: 0;
+}
+.c-white { background: #ffffff; }
+.c-yellow { background: #facc15; }
+.c-orange { background: #fb923c; }
+.c-pink { background: #f472b6; }
+.c-red { background: #ef4444; }
+.c-brown { background: #92400e; }
+.c-lightgreen { background: #84cc16; }
+.c-green { background: #16a34a; }
+.c-teal { background: #0d9488; }
+.c-blue { background: #2563eb; }
+.c-navy { background: #1e3a8a; }
+.c-magenta { background: #db2777; }
+.c-purple { background: #9333ea; }
+.c-gray { background: #94a3b8; }
+.c-black { background: #0f172a; }
+.c-clear { background: linear-gradient(135deg, #ffffff 40%, #cbd5e1 100%); }
+
+/* --------------------------------------------------------------------------
+   통계 요약 바 (통합 검색 이후 표시)
+   -------------------------------------------------------------------------- */
+.stats-summary-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    background: #ffffff;
+    border: 1px solid #dbeafe;
+    border-radius: 14px;
+    padding: 14px 20px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.stat-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.stat-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.stat-num {
+    font-size: 1.06rem;
+    color: var(--text-main);
+}
+
+.stat-num.highlight {
+    color: var(--primary);
+    font-size: 1.2rem;
+}
+
+.stat-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--border);
+}
+
+/* --------------------------------------------------------------------------
+   검색 결과 카드 그리드 & 개별 의약품 카드
+   -------------------------------------------------------------------------- */
+.status-message {
+    text-align: center;
+    padding: 28px 16px;
+    margin: 8px 0 18px;
+    font-size: 0.96rem;
+    font-weight: 600;
+    color: var(--text-sub);
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+}
+
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.card {
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+}
+
+.card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-md);
+    border-color: #93c5fd;
+}
+
+.card-img-wrap {
+    width: 100%;
+    height: 168px;
+    background: #f1f5f9;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.card-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    padding: 10px;
+}
+
+.pill-graphic-fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+.pill-shape-badge {
+    min-width: 72px;
+    padding: 8px 14px;
+    border-radius: 99px;
+    background: #ffffff;
+    border: 2px solid #cbd5e1;
+    font-weight: 800;
+    font-size: 0.85rem;
+    color: #1e293b;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.card-badges-top {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    display: flex;
+    justify-content: flex-start;
+    align-items: flex-start;
+    pointer-events: none;
+}
+
+.otc-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.78);
+    color: #ffffff;
+}
+.otc-badge.general { background: #0d9488; }
+.otc-badge.special { background: #7c3aed; }
+
+.card-body {
+    padding: 16px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.card-corp {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.card-title {
+    font-size: 1.04rem;
+    font-weight: 800;
+    color: var(--text-main);
+    margin-bottom: 8px;
+    line-height: 1.35;
+}
+
+.grain-meta-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 9px;
+}
+
+.meta-chip {
+    font-size: 0.74rem;
+    font-weight: 600;
+    background: #f1f5f9;
+    color: #334155;
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+.meta-chip.imprint {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
+.card-efcy {
+    font-size: 0.84rem;
+    color: var(--text-sub);
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-top: auto;
+}
+
+.card-footer-actions {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #f1f5f9;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-pillbox-add {
+    border: 1px solid #bfdbfe;
+    background: var(--primary-light);
+    color: var(--primary);
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.btn-pillbox-add:hover {
+    background: var(--primary);
+    color: #ffffff;
+}
+
+.btn-pillbox-del {
+    border: 1px solid #fecaca;
+    background: var(--danger-light);
+    color: var(--danger);
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   페이지네이션 (화살표 넘기기 + 숫자 네모칸 클릭 이동)
+   -------------------------------------------------------------------------- */
+.pagination-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 28px 0 12px;
+    flex-wrap: wrap;
+}
+
+.page-btn {
+    min-width: 38px;
+    height: 38px;
+    padding: 0 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--text-sub);
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.page-btn:hover:not(:disabled):not(.active) {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-light);
+}
+
+.page-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+.page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: #f8fafc;
+}
+
+.page-btn.arrow {
+    font-size: 1.05rem;
+}
+
+.page-ellipsis {
+    padding: 0 4px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-weight: 700;
+    user-select: none;
+}
+
+/* --------------------------------------------------------------------------
+   내 약통 & 안전 분석 리포트
+   -------------------------------------------------------------------------- */
+.safety-report-box {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-sm);
+}
+
+.safety-alert {
+    padding: 14px 16px;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+.safety-alert:last-child {
+    margin-bottom: 0;
+}
+.safety-alert.safe {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+}
+.safety-alert.warn {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+}
+
+/* --------------------------------------------------------------------------
+   상세 모달 팝업
+   -------------------------------------------------------------------------- */
+.modal {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: #ffffff;
+    width: 100%;
+    max-width: 760px;
+    max-height: 88vh;
+    border-radius: 20px;
+    padding: 26px;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+
+.modal-loading {
+    text-align: center;
+    padding: 52px 20px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-sub);
+}
+
+.close-btn {
+    position: absolute;
+    top: 16px;
+    right: 18px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 1.4rem;
+    border: none;
+    background: #f1f5f9;
+    cursor: pointer;
+    color: var(--text-sub);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-header-top {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+}
+
+.modal-img-box {
+    width: 180px;
+    height: 120px;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.modal-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.modal-title-area {
+    flex: 1;
+    min-width: 220px;
+}
+
+.modal-title {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: var(--text-main);
+    margin: 6px 0 4px;
+}
+
+.modal-corp {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+}
+
+/* 모달 내부 서브탭 */
+.modal-tabs {
+    display: flex;
+    gap: 6px;
+    background: #f1f5f9;
+    padding: 5px;
+    border-radius: 12px;
+    margin: 16px 0;
+}
+
+.m-tab-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 9px 10px;
+    border-radius: 8px;
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: var(--text-sub);
+    cursor: pointer;
+}
+
+.m-tab-btn.active {
+    background: #ffffff;
+    color: var(--primary);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.m-tab-pane {
+    display: none;
+}
+.m-tab-pane.active {
+    display: block;
+}
+
+.detail-section {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+}
+
+.detail-section h4 {
+    font-size: 0.92rem;
+    color: var(--primary);
+    margin-bottom: 6px;
+}
+
+.detail-section p {
+    font-size: 0.9rem;
+    color: #334155;
+    line-height: 1.6;
+    white-space: pre-line;
+}
+
+.spec-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.spec-item {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+}
+
+.spec-item span {
+    display: block;
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    margin-bottom: 3px;
+}
+
+.spec-item strong {
+    font-size: 0.92rem;
+    color: var(--text-main);
+    word-break: break-all;
+}
+
+/* 토스트 알림 */
+.toast {
+    position: fixed;
+    bottom: 85px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0f172a;
+    color: #ffffff;
+    padding: 12px 22px;
+    border-radius: 99px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    z-index: 2000;
+}
+
+/* --------------------------------------------------------------------------
+   반응형 미디어 쿼리 (PC / 태블릿 / 모바일)
+   -------------------------------------------------------------------------- */
+.mobile-bottom-nav {
+    display: none;
+}
+
+@media (max-width: 960px) {
+    .id-form-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .card-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    .desktop-nav {
+        display: none;
+    }
+
+    #tab-unified.active.is-home {
+        min-height: calc(100vh - 160px);
+    }
+
+    .mobile-bottom-nav {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 66px;
+        background: #ffffff;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        z-index: 500;
+        box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.06);
+    }
+
+    .m-nav-btn {
+        flex: 1;
+        border: none;
+        background: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+        font-size: 0.74rem;
+        font-weight: 700;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 8px 0;
+    }
+
+    .m-nav-btn .m-icon {
+        font-size: 1.25rem;
+    }
+
+    .m-nav-btn.active {
+        color: var(--primary);
+    }
+}
+
+@media (max-width: 640px) {
+    .main-container {
+        padding: 0 12px;
+        margin: 14px auto;
+    }
+
+    .hero-card,
+    .pillbox-header-card {
+        padding: 18px 16px;
+    }
+
+    .unified-search-bar {
+        flex-direction: column;
+        border-radius: 12px;
+    }
+
+    .search-select {
+        padding: 11px 14px;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .unified-search-bar input {
+        padding: 13px 14px;
+    }
+
+    .primary-btn {
+        padding: 13px;
+        width: 100%;
+    }
+
+    .id-field-row {
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .id-field-label {
+        width: auto;
+        padding-top: 0;
+    }
+
+    .chk-options-grid.cols-4 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .card-grid,
+    .spec-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .modal {
+        padding: 0;
+        align-items: flex-end;
+    }
+
+    .modal-content {
+        max-height: 92vh;
+        border-radius: 20px 20px 0 0;
+        padding: 20px 16px;
+    }
+
+    .modal-img-box {
+        width: 100%;
+        height: 150px;
+    }
+}

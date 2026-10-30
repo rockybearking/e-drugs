@@ -1,2 +1,27 @@
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Python & Virtual Environment
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django static build & SQLite WAL temp files
+Backend/staticfiles/
+staticfiles/
+*.sqlite3-wal
+*.sqlite3-shm
+
+# IDE & Node
 .idea/
+.vscode/
 node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db

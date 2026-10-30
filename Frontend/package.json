@@ -1,0 +1,7 @@
+{
+  "name": "e-drugs-frontend",
+  "version": "2.0.0",
+  "description": "알약이가 (e-Drug Care) 반응형 웹 프론트엔드",
+  "main": "app.js",
+  "private": true
+}
