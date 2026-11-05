@@ -1,13 +1,39 @@
 <!DOCTYPE html>
+<!--
+================================================================================
+[파일명] Frontend/index.html
+[역할] 알약이가 (e-Drug Care) 메인 반응형 웹 사용자 인터페이스 마크업 (View Template)
+================================================================================
+
+[백엔드 & 프론트엔드 아키텍처 연결 흐름]
+1. 서빙 경로 (어떻게 브라우저에 전달되는가):
+   - 브라우저 `GET /` 요청
+   - ➔ `Backend/config/urls.py` (`path("", include("drugs.urls"))`)
+   - ➔ `Backend/drugs/urls.py` (`path("", views.index, name="index")`)
+   - ➔ `Backend/drugs/views.py` (`render(request, "index.html")`)
+   - ➔ `Backend/config/settings.py` (`TEMPLATES["DIRS"] = [FRONTEND_DIR]`) 설정에 의해 이 파일이 렌더링됩니다.
+2. 정적 리소스 연결:
+   - `<link rel="stylesheet" href="style.css">` ➔ `Backend/config/urls.py` ➔ `Frontend/style.css`
+   - `<script src="app.js"></script>` ➔ `Backend/config/urls.py` ➔ `Frontend/app.js`
+   - `<link rel="icon" href="/favicon.ico">` ➔ `Backend/config/urls.py` ➔ `Backend/drugs/views.py :: serve_favicon()`
+3. 주요 DOM ID와 `Frontend/app.js` & 백엔드 API 연결 목적지:
+   - `#brandLogo` (메인 홈 로고) ➔ 클릭 시 `app.js :: resetToHome()` 실행 (메인 검색 화면으로 복귀)
+   - `#tab-unified` (탭 1: 통합 스마트 검색) ➔ `app.js :: runUnifiedSearch()` ➔ `GET /api/unified-search/`
+   - `#tab-permission` (탭 2: 허가·성분 전문조회) ➔ `app.js :: runPermissionSearch()` ➔ `GET /api/permission-search/`
+   - `#tab-pillbox` (탭 3: 내 약통) ➔ `app.js :: loadPillbox()` ➔ `GET|POST|DELETE /api/pillbox/`
+   - `#detailModal` (3-in-1 상세 모달) ➔ `app.js :: openDetailModal()` ➔ `GET /api/drug-detail/`
+================================================================================
+-->
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
     <title>알약이가 (e-Drug Care) | 의약품 통합 검색</title>
+    <link rel="icon" href="/favicon.ico" type="image/svg+xml">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- 상단 글로벌 헤더 -->
+    <!-- 상단 글로벌 헤더 (홈으로 나가는 메인 화면의 알약 기호만 유지) -->
     <header class="top-header">
         <div class="header-inner">
             <div class="brand-area" id="brandLogo" role="button" tabindex="0" aria-label="메인 화면으로 이동">
@@ -17,16 +43,16 @@
                 </div>
             </div>
 
-            <!-- PC 네비게이션 탭 -->
+            <!-- PC 네비게이션 탭 (Frontend/app.js :: initTabNavigation() 에서 data-tab 속성으로 전환 제어) -->
             <nav class="desktop-nav" aria-label="주요 메뉴">
                 <button type="button" class="nav-btn active" data-tab="tab-unified">
-                    <span class="nav-icon">🔍</span> 통합 스마트 검색
+                    통합 스마트 검색
                 </button>
                 <button type="button" class="nav-btn" data-tab="tab-permission">
-                    <span class="nav-icon">📋</span> 허가·성분 전문조회
+                    허가·성분 전문조회
                 </button>
                 <button type="button" class="nav-btn" data-tab="tab-pillbox">
-                    <span class="nav-icon">🧰</span> 내 약통 <span id="pillboxCountBadge" class="count-pill">0</span>
+                    내 약통 <span id="pillboxCountBadge" class="count-pill">0</span>
                 </button>
             </nav>
         </div>
@@ -35,6 +61,8 @@
     <main class="main-container">
         <!-- ==========================================================
              [탭 1] 메인(홈) & 통합 스마트 검색 (낱알 식별기 통합)
+             - 연결 JS: Frontend/app.js :: runUnifiedSearch()
+             - 연결 백엔드: Backend/drugs/views.py :: api_unified_search()
         =========================================================== -->
         <section id="tab-unified" class="tab-panel active is-home">
             <div class="hero-card unified-search-card">
@@ -228,6 +256,8 @@
 
         <!-- ==========================================================
              [탭 2] 허가·성분 전문조회
+             - 연결 JS: Frontend/app.js :: runPermissionSearch()
+             - 연결 백엔드: Backend/drugs/views.py :: api_permission_search()
         =========================================================== -->
         <section id="tab-permission" class="tab-panel">
             <div class="hero-card compact">
@@ -259,11 +289,13 @@
 
         <!-- ==========================================================
              [탭 3] 내 약통 & 안전 복약 리포트
+             - 연결 JS: Frontend/app.js :: loadPillbox(), addToPillbox(), removeFromPillbox()
+             - 연결 백엔드: Backend/drugs/views.py :: api_pillbox()
         =========================================================== -->
         <section id="tab-pillbox" class="tab-panel">
             <div class="pillbox-header-card">
                 <div class="hero-text">
-                    <h2>🧰 내 약통 & 주성분 중복·병용 안전 리포트</h2>
+                    <h2>내 약통 &amp; 주성분 중복·병용 안전 리포트</h2>
                     <p>복용 중이거나 상비약으로 보관 중인 약을 등록하면 주성분 중복 위험과 주요 주의사항을 자동으로 분석합니다.</p>
                 </div>
             </div>
@@ -276,21 +308,18 @@
     <!-- 모바일 하단 고정 탭 네비게이션 바 -->
     <nav class="mobile-bottom-nav" aria-label="모바일 하단 메뉴">
         <button type="button" class="m-nav-btn active" data-tab="tab-unified">
-            <span class="m-icon">🔍</span>
             <span>통합검색</span>
         </button>
         <button type="button" class="m-nav-btn" data-tab="tab-permission">
-            <span class="m-icon">📋</span>
             <span>허가·성분</span>
         </button>
         <button type="button" class="m-nav-btn" data-tab="tab-pillbox">
-            <span class="m-icon">🧰</span>
             <span>내 약통 <b id="mPillboxCount">0</b></span>
         </button>
     </nav>
 
-    <!-- 상세 정보 모달 팝업 -->
-    <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true">
+    <!-- 상세 정보 모달 팝업 (Frontend/app.js :: openDetailModal() ➔ GET /api/drug-detail/) -->
+    <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalDialogTitle">
         <div class="modal-content">
             <button type="button" id="closeModalBtn" class="close-btn" aria-label="닫기">&times;</button>
             <div id="modalBody"></div>
@@ -298,7 +327,7 @@
     </div>
 
     <!-- 토스트 알림 -->
-    <div id="toastNotice" class="toast hidden"></div>
+    <div id="toastNotice" class="toast hidden" role="status" aria-live="polite"></div>
 
     <script src="app.js"></script>
 </body>
