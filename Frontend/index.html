@@ -1,334 +1,422 @@
 <!DOCTYPE html>
 <!--
-================================================================================
-[파일명] Frontend/index.html
-[역할] 알약이가 (e-Drug Care) 메인 반응형 웹 사용자 인터페이스 마크업 (View Template)
-================================================================================
-
-[백엔드 & 프론트엔드 아키텍처 연결 흐름]
-1. 서빙 경로 (어떻게 브라우저에 전달되는가):
-   - 브라우저 `GET /` 요청
-   - ➔ `Backend/config/urls.py` (`path("", include("drugs.urls"))`)
-   - ➔ `Backend/drugs/urls.py` (`path("", views.index, name="index")`)
-   - ➔ `Backend/drugs/views.py` (`render(request, "index.html")`)
-   - ➔ `Backend/config/settings.py` (`TEMPLATES["DIRS"] = [FRONTEND_DIR]`) 설정에 의해 이 파일이 렌더링됩니다.
-2. 정적 리소스 연결:
-   - `<link rel="stylesheet" href="style.css">` ➔ `Backend/config/urls.py` ➔ `Frontend/style.css`
-   - `<script src="app.js"></script>` ➔ `Backend/config/urls.py` ➔ `Frontend/app.js`
-   - `<link rel="icon" href="/favicon.ico">` ➔ `Backend/config/urls.py` ➔ `Backend/drugs/views.py :: serve_favicon()`
-3. 주요 DOM ID와 `Frontend/app.js` & 백엔드 API 연결 목적지:
-   - `#brandLogo` (메인 홈 로고) ➔ 클릭 시 `app.js :: resetToHome()` 실행 (메인 검색 화면으로 복귀)
-   - `#tab-unified` (탭 1: 통합 스마트 검색) ➔ `app.js :: runUnifiedSearch()` ➔ `GET /api/unified-search/`
-   - `#tab-permission` (탭 2: 허가·성분 전문조회) ➔ `app.js :: runPermissionSearch()` ➔ `GET /api/permission-search/`
-   - `#tab-pillbox` (탭 3: 내 약통) ➔ `app.js :: loadPillbox()` ➔ `GET|POST|DELETE /api/pillbox/`
-   - `#detailModal` (3-in-1 상세 모달) ➔ `app.js :: openDetailModal()` ➔ `GET /api/drug-detail/`
-================================================================================
+[역할] 알약이가 반응형 웹 프론트엔드 마크업 (좌측 수직 색인 레일 + 우측 워크벤치 + 테마 스위처 + 네이티브 dialog 2종)
+[경로] GET / -> Backend/drugs/views.py :: index() -> Frontend/index.html -> style.css, app.js 로드
+[수정] 탭 메뉴 추가 시 .rail-nav와 .mobile-dock에 동일 data-tab 버튼을 추가하고 <main>에 .tab-panel 섹션을 만드세요.
 -->
-<html lang="ko">
+<html lang="ko" data-theme="forest">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-    <title>알약이가 (e-Drug Care) | 의약품 통합 검색</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>알약이가 | 식약처 공공데이터 의약품 통합 색인</title>
     <link rel="icon" href="/favicon.ico" type="image/svg+xml">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- 상단 글로벌 헤더 (홈으로 나가는 메인 화면의 알약 기호만 유지) -->
-    <header class="top-header">
-        <div class="header-inner">
-            <div class="brand-area" id="brandLogo" role="button" tabindex="0" aria-label="메인 화면으로 이동">
-                <span class="brand-icon">💊</span>
-                <div class="brand-title-row">
-                    <h1 class="brand-title">알약이가 <span class="brand-sub">e-Drug Care</span></h1>
-                </div>
-            </div>
-
-            <!-- PC 네비게이션 탭 (Frontend/app.js :: initTabNavigation() 에서 data-tab 속성으로 전환 제어) -->
-            <nav class="desktop-nav" aria-label="주요 메뉴">
-                <button type="button" class="nav-btn active" data-tab="tab-unified">
-                    통합 스마트 검색
-                </button>
-                <button type="button" class="nav-btn" data-tab="tab-permission">
-                    허가·성분 전문조회
-                </button>
-                <button type="button" class="nav-btn" data-tab="tab-pillbox">
-                    내 약통 <span id="pillboxCountBadge" class="count-pill">0</span>
-                </button>
-            </nav>
+    <!-- 좌측 아키텍처 레일 (모바일에서는 상단 압축 바) -->
+    <header class="app-rail">
+        <div class="rail-brand-wrap">
+            <button type="button" id="brandLogo" class="brand-reset-btn">
+                <span class="brand-name-text">알약이가</span>
+                <span class="brand-caption">식약처 공공데이터 의약품 통합 색인</span>
+            </button>
         </div>
+
+        <nav class="rail-nav" aria-label="주요 메뉴">
+            <button type="button" class="nav-btn active" data-tab="tab-unified" aria-current="page">
+                <span class="nav-idx">01</span>
+                <span class="nav-copy">
+                    <span class="nav-label">통합 약품 탐색</span>
+                    <span class="nav-desc">품목 · 효능 · 낱알 외형 식별</span>
+                </span>
+            </button>
+            <button type="button" class="nav-btn" data-tab="tab-permission">
+                <span class="nav-idx">02</span>
+                <span class="nav-copy">
+                    <span class="nav-label">허가 · 성분 색인</span>
+                    <span class="nav-desc">전문·일반 구분 · 주성분 · EDI</span>
+                </span>
+            </button>
+            <button type="button" class="nav-btn" data-tab="tab-pillbox">
+                <span class="nav-idx">03</span>
+                <span class="nav-copy">
+                    <span class="nav-label">내 약통 · 안전점검</span>
+                </span>
+                <span id="pillboxCountBadge" class="count-pill">0</span>
+            </button>
+        </nav>
     </header>
 
-    <main class="main-container">
-        <!-- ==========================================================
-             [탭 1] 메인(홈) & 통합 스마트 검색 (낱알 식별기 통합)
-             - 연결 JS: Frontend/app.js :: runUnifiedSearch()
-             - 연결 백엔드: Backend/drugs/views.py :: api_unified_search()
-        =========================================================== -->
-        <section id="tab-unified" class="tab-panel active is-home">
-            <div class="hero-card unified-search-card">
-                <div class="unified-search-bar">
-                    <select id="unifiedFieldSelect" class="search-select" aria-label="검색 조건">
-                        <option value="itemName">약 이름 (품목명)</option>
-                        <option value="efcy">증상 · 효능 키워드</option>
-                        <option value="entp">제약사 (업체명)</option>
-                    </select>
-                    <input
-                        type="text"
-                        id="searchInput"
-                        placeholder="약 이름, 증상 또는 제약사를 입력하세요 (아래 외형 조건만으로도 검색 가능)"
-                        autocomplete="off"
-                    >
-                    <button type="button" id="searchBtn" class="primary-btn">통합 검색</button>
-                </div>
+    <!-- 우측 메인 워크벤치 캔버스 -->
+    <main class="workspace">
+        <div class="workspace-masthead">
+            <h1 id="workspaceHeading" class="workspace-title">통합 의약품 및 낱알 외형 탐색</h1>
+        </div>
 
-                <!-- 통합 낱알 식별기 영역 (홈에서는 펼침, 검색 결과 이후에는 접힘 기본 + 펼침/접음 토글) -->
-                <div id="grainFilterWrapper" class="grain-filter-wrapper">
-                    <div class="grain-filter-toolbar">
-                        <div class="grain-toolbar-left">
-                            <span class="grain-toolbar-label">낱알 식별 조건</span>
-                            <div id="activeFilterBadges" class="active-filter-badges"></div>
+        <!-- [탭 01] 통합 약품 탐색 + 낱알 외형 식별 -->
+        <section id="tab-unified" class="tab-panel active" aria-labelledby="workspaceHeading">
+            <search aria-label="통합 의약품 및 낱알 외형 검색">
+                <form id="unifiedSearchForm" class="ledger-sheet" action="/api/unified-search/" method="GET" novalidate>
+                    <div class="command-grid">
+                        <div class="field-cell field-select-cell">
+                            <label for="unifiedFieldSelect" class="field-label">검색 기준</label>
+                            <select id="unifiedFieldSelect" name="field" class="control-select">
+                                <option value="itemName">품목명 (약 이름)</option>
+                                <option value="efcy">효능 · 증상 키워드</option>
+                                <option value="entp">제조사 · 수입사</option>
+                            </select>
                         </div>
-                        <div class="grain-toolbar-right">
-                            <button type="button" id="resetGrainFilterBtn" class="filter-reset-btn">다시 입력</button>
-                            <button
-                                type="button"
-                                id="toggleGrainFilterBtn"
-                                class="filter-toggle-btn hidden"
-                                aria-expanded="true"
-                                aria-controls="grainFilterBody"
+
+                        <div class="field-cell field-query-cell">
+                            <label for="searchInput" class="field-label">검색어 (외형 단독 검색 시 비워두기 가능)</label>
+                            <input
+                                type="search"
+                                id="searchInput"
+                                name="q"
+                                class="control-input"
+                                placeholder="예: 타이레놀, 가모시드, 두통, 종근당"
+                                autocorrect="off"
+                                autocapitalize="none"
+                                spellcheck="false"
+                                enterkeyhint="search"
                             >
-                                외형 조건 접기 ▲
-                            </button>
+                        </div>
+
+                        <div class="field-cell field-action-cell">
+                            <button type="submit" id="searchBtn" class="btn-primary">통합 탐색 실행</button>
                         </div>
                     </div>
 
-                    <div id="grainFilterBody" class="grain-filter-body">
-                        <div class="id-form-grid">
-                            <!-- 좌측 컬럼: 식별문자, 제형, 모양 -->
-                            <div class="id-form-col">
-                                <div class="id-field-row">
-                                    <div class="id-field-label">식별문자</div>
-                                    <div class="id-field-control imprint-control">
-                                        <input
-                                            type="text"
-                                            id="grainPrintInput"
-                                            class="id-text-input"
-                                            placeholder="알약 앞/뒤 문자 (예: TY, 500)"
-                                            autocomplete="off"
-                                        >
-                                        <label class="chk-item exact-chk">
-                                            <input type="checkbox" id="grainPrintExact">
-                                            <span>일치</span>
-                                        </label>
-                                    </div>
-                                </div>
+                    <!-- 낱알 외형 조건 매트릭스 -->
+                    <div id="grainFilterWrapper" class="specimen-panel">
+                        <div class="specimen-toolbar">
+                            <div class="specimen-toolbar-info">
+                                <h2 class="specimen-panel-title">낱알 외형 식별 매트릭스</h2>
+                                <div id="activeFilterBadges" class="active-filter-badges" aria-live="polite"></div>
+                            </div>
+                            <div class="specimen-toolbar-actions">
+                                <button type="button" id="resetGrainFilterBtn" class="btn-ghost">조건 초기화</button>
+                                <button
+                                    type="button"
+                                    id="toggleGrainFilterBtn"
+                                    class="btn-outline"
+                                    aria-expanded="true"
+                                    aria-controls="grainFilterBody"
+                                >
+                                    외형 조건판 접기
+                                </button>
+                            </div>
+                        </div>
 
-                                <div class="id-field-row">
-                                    <div class="id-field-label">제형</div>
-                                    <div class="id-field-control" id="formCheckGroup" data-group="forms">
-                                        <div class="chk-all-line">
-                                            <label class="chk-item">
-                                                <input type="checkbox" value="전체" data-role="all" checked>
-                                                <span>전체</span>
-                                            </label>
-                                        </div>
-                                        <div class="chk-options-inline">
-                                            <label class="chk-item"><input type="checkbox" value="정제"><span>정제</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="경질캡슐"><span>경질캡슐</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="연질캡슐"><span>연질캡슐</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="구강붕해필름"><span>구강붕해필름</span></label>
-                                        </div>
-                                    </div>
+                        <div id="grainFilterBody" class="specimen-body">
+                            <div class="imprint-bar">
+                                <div class="imprint-input-group">
+                                    <label for="grainPrintInput" class="field-label">식별 각인 문자 (앞 · 뒤)</label>
+                                    <input
+                                        type="text"
+                                        id="grainPrintInput"
+                                        name="print"
+                                        class="control-input compact-input"
+                                        placeholder="알약 표면에 적힌 영문·숫자 (예: TY, 500)"
+                                        maxlength="50"
+                                        autocorrect="off"
+                                        autocapitalize="none"
+                                        spellcheck="false"
+                                        enterkeyhint="search"
+                                    >
                                 </div>
-
-                                <div class="id-field-row">
-                                    <div class="id-field-label">모양</div>
-                                    <div class="id-field-control" id="shapeCheckGroup" data-group="shapes">
-                                        <div class="chk-all-line">
-                                            <label class="chk-item">
-                                                <input type="checkbox" value="전체" data-role="all" checked>
-                                                <span>전체</span>
-                                            </label>
-                                        </div>
-                                        <div class="chk-options-grid cols-4">
-                                            <label class="chk-item"><input type="checkbox" value="원형"><span>원형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="타원형"><span>타원형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="장방형"><span>장방형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="반원형"><span>반원형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="삼각형"><span>삼각형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="사각형"><span>사각형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="마름모형"><span>마름모형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="오각형"><span>오각형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="육각형"><span>육각형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="팔각형"><span>팔각형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="기타"><span>기타</span></label>
-                                        </div>
-                                    </div>
+                                <div class="imprint-exact-wrap">
+                                    <label class="choice-chip exact-toggle" for="grainPrintExact">
+                                        <input type="checkbox" id="grainPrintExact" name="printExact" value="1">
+                                        <span>문자열 정확히 일치</span>
+                                    </label>
                                 </div>
                             </div>
 
-                            <!-- 우측 컬럼: 분할선(앞/뒤), 색상 -->
-                            <div class="id-form-col">
-                                <div class="id-field-row">
-                                    <div class="id-field-label">분할선</div>
-                                    <div class="id-field-control line-split-stack">
-                                        <div class="line-side-row" id="lineFrontCheckGroup" data-group="lineFront">
-                                            <span class="side-tag">[앞]</span>
-                                            <label class="chk-item"><input type="checkbox" value="전체" data-role="all" checked><span>전체</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="없음"><span>없음</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="+"><span>'+' 형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="-"><span>'-' 형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="기타"><span>기타</span></label>
-                                        </div>
-                                        <div class="line-side-row" id="lineBackCheckGroup" data-group="lineBack">
-                                            <span class="side-tag">[뒤]</span>
-                                            <label class="chk-item"><input type="checkbox" value="전체" data-role="all" checked><span>전체</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="없음"><span>없음</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="+"><span>'+' 형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="-"><span>'-' 형</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="기타"><span>기타</span></label>
-                                        </div>
+                            <!-- 화면 폭에 맞춰 가로 일렬 배치 후 점진적으로 줄바꿈되는 반응형 조건 박스 -->
+                            <div class="matrix-grid">
+                                <fieldset id="formCheckGroup" class="matrix-fieldset" data-group="forms">
+                                    <legend class="matrix-legend">제형 구분</legend>
+                                    <div class="chip-collection">
+                                        <label class="choice-chip"><input type="checkbox" value="전체" data-role="all" checked><span>전체</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="정제"><span>정제</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="경질캡슐"><span>경질캡슐</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="연질캡슐"><span>연질캡슐</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="구강붕해필름"><span>구강붕해필름</span></label>
                                     </div>
-                                </div>
+                                </fieldset>
 
-                                <div class="id-field-row">
-                                    <div class="id-field-label">색상</div>
-                                    <div class="id-field-control" id="colorCheckGroup" data-group="colors">
-                                        <div class="chk-all-line">
-                                            <label class="chk-item">
-                                                <input type="checkbox" value="전체" data-role="all" checked>
-                                                <span>전체</span>
-                                            </label>
-                                        </div>
-                                        <div class="chk-options-grid cols-4">
-                                            <label class="chk-item"><input type="checkbox" value="하양"><i class="color-dot c-white"></i><span>하양</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="노랑"><i class="color-dot c-yellow"></i><span>노랑</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="주황"><i class="color-dot c-orange"></i><span>주황</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="분홍"><i class="color-dot c-pink"></i><span>분홍</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="빨강"><i class="color-dot c-red"></i><span>빨강</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="갈색"><i class="color-dot c-brown"></i><span>갈색</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="연두"><i class="color-dot c-lightgreen"></i><span>연두</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="초록"><i class="color-dot c-green"></i><span>초록</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="청록"><i class="color-dot c-teal"></i><span>청록</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="파랑"><i class="color-dot c-blue"></i><span>파랑</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="남색"><i class="color-dot c-navy"></i><span>남색</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="자주"><i class="color-dot c-magenta"></i><span>자주</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="보라"><i class="color-dot c-purple"></i><span>보라</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="회색"><i class="color-dot c-gray"></i><span>회색</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="검정"><i class="color-dot c-black"></i><span>검정</span></label>
-                                            <label class="chk-item"><input type="checkbox" value="투명"><i class="color-dot c-clear"></i><span>투명</span></label>
-                                        </div>
+                                <fieldset id="lineFrontCheckGroup" class="matrix-fieldset" data-group="lineFront">
+                                    <legend class="matrix-legend">앞면 분할선</legend>
+                                    <div class="chip-collection">
+                                        <label class="choice-chip"><input type="checkbox" value="전체" data-role="all" checked><span>전체</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="없음"><span>없음</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="+"><span>십자(+)</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="-"><span>일자(-)</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="기타"><span>기타</span></label>
                                     </div>
-                                </div>
+                                </fieldset>
+
+                                <fieldset id="lineBackCheckGroup" class="matrix-fieldset" data-group="lineBack">
+                                    <legend class="matrix-legend">뒷면 분할선</legend>
+                                    <div class="chip-collection">
+                                        <label class="choice-chip"><input type="checkbox" value="전체" data-role="all" checked><span>전체</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="없음"><span>없음</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="+"><span>십자(+)</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="-"><span>일자(-)</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="기타"><span>기타</span></label>
+                                    </div>
+                                </fieldset>
+
+                                <fieldset id="shapeCheckGroup" class="matrix-fieldset" data-group="shapes">
+                                    <legend class="matrix-legend">알약 기하 모양 (중복 선택 가능)</legend>
+                                    <div class="chip-collection">
+                                        <label class="choice-chip"><input type="checkbox" value="전체" data-role="all" checked><span>전체</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="원형"><span class="shape-glyph s-circle" aria-hidden="true"></span><span>원형</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="타원형"><span class="shape-glyph s-oval" aria-hidden="true"></span><span>타원형</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="장방형"><span class="shape-glyph s-oblong" aria-hidden="true"></span><span>장방형</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="반원형"><span class="shape-glyph s-semicircle" aria-hidden="true"></span><span>반원형</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="삼각형"><span class="shape-glyph s-triangle" aria-hidden="true"></span><span>삼각형</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="사각형"><span class="shape-glyph s-square" aria-hidden="true"></span><span>사각형</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="마름모형"><span class="shape-glyph s-diamond" aria-hidden="true"></span><span>마름모형</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="오각형"><span class="shape-glyph s-pentagon" aria-hidden="true"></span><span>오각형</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="육각형"><span class="shape-glyph s-hexagon" aria-hidden="true"></span><span>육각형</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="팔각형"><span class="shape-glyph s-octagon" aria-hidden="true"></span><span>팔각형</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="기타"><span>기타 모양</span></label>
+                                    </div>
+                                </fieldset>
+
+                                <fieldset id="colorCheckGroup" class="matrix-fieldset" data-group="colors">
+                                    <legend class="matrix-legend">표면 색상 (중복 선택 가능)</legend>
+                                    <div class="chip-collection">
+                                        <label class="choice-chip"><input type="checkbox" value="전체" data-role="all" checked><span>전체</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="하양"><span class="swatch c-white" aria-hidden="true"></span><span>하양</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="노랑"><span class="swatch c-yellow" aria-hidden="true"></span><span>노랑</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="주황"><span class="swatch c-orange" aria-hidden="true"></span><span>주황</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="분홍"><span class="swatch c-pink" aria-hidden="true"></span><span>분홍</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="빨강"><span class="swatch c-red" aria-hidden="true"></span><span>빨강</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="갈색"><span class="swatch c-brown" aria-hidden="true"></span><span>갈색</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="연두"><span class="swatch c-lightgreen" aria-hidden="true"></span><span>연두</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="초록"><span class="swatch c-green" aria-hidden="true"></span><span>초록</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="청록"><span class="swatch c-teal" aria-hidden="true"></span><span>청록</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="파랑"><span class="swatch c-blue" aria-hidden="true"></span><span>파랑</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="남색"><span class="swatch c-navy" aria-hidden="true"></span><span>남색</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="자주"><span class="swatch c-magenta" aria-hidden="true"></span><span>자주</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="보라"><span class="swatch c-purple" aria-hidden="true"></span><span>보라</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="회색"><span class="swatch c-gray" aria-hidden="true"></span><span>회색</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="검정"><span class="swatch c-black" aria-hidden="true"></span><span>검정</span></label>
+                                        <label class="choice-chip"><input type="checkbox" value="투명"><span class="swatch c-clear" aria-hidden="true"></span><span>투명</span></label>
+                                    </div>
+                                </fieldset>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
+                </form>
+            </search>
 
-            <!-- 통합 검색 이후에만 표시되는 결과 영역 -->
-            <div id="unifiedResultsSection" class="results-section hidden">
-                <div id="unifiedStatsBar" class="stats-summary-bar hidden">
-                    <div class="stat-box">
-                        <span class="stat-label">통합 매칭 결과</span>
-                        <strong id="statMergedCount" class="stat-num highlight">0건</strong>
+            <section id="unifiedResultsSection" class="results-zone hidden" aria-label="통합 검색 결과">
+                <dl id="unifiedStatsBar" class="tally-strip hidden">
+                    <div class="tally-cell primary">
+                        <dt>통합 병합 건수</dt>
+                        <dd id="statMergedCount">0건</dd>
                     </div>
-                    <div class="stat-divider"></div>
-                    <div class="stat-box">
-                        <span class="stat-label">e약은요 개요정보</span>
-                        <strong id="statEasyCount" class="stat-num">0건</strong>
+                    <div class="tally-cell">
+                        <dt>의약품개요 (e약은요)</dt>
+                        <dd id="statEasyCount">0건</dd>
                     </div>
-                    <div class="stat-box">
-                        <span class="stat-label">낱알식별 외형정보</span>
-                        <strong id="statGrainCount" class="stat-num">0건</strong>
+                    <div class="tally-cell">
+                        <dt>낱알식별 외형</dt>
+                        <dd id="statGrainCount">0건</dd>
                     </div>
-                    <div class="stat-box">
-                        <span class="stat-label">식약처 제품허가정보</span>
-                        <strong id="statPrmsnCount" class="stat-num">0건</strong>
+                    <div class="tally-cell">
+                        <dt>식약처 품목허가</dt>
+                        <dd id="statPrmsnCount">0건</dd>
                     </div>
-                </div>
+                </dl>
 
-                <div id="statusMessage" class="status-message hidden"></div>
-                <div id="resultList" class="card-grid"></div>
-                <nav id="unifiedPagination" class="pagination-nav hidden" aria-label="검색 결과 페이지 이동"></nav>
-            </div>
+                <p id="statusMessage" class="state-banner hidden" role="status" aria-live="polite"></p>
+                <div id="resultList" class="dossier-grid"></div>
+                <nav id="unifiedPagination" class="pagination-bar hidden" aria-label="통합 검색 페이지 이동"></nav>
+            </section>
         </section>
 
-        <!-- ==========================================================
-             [탭 2] 허가·성분 전문조회
-             - 연결 JS: Frontend/app.js :: runPermissionSearch()
-             - 연결 백엔드: Backend/drugs/views.py :: api_permission_search()
-        =========================================================== -->
-        <section id="tab-permission" class="tab-panel">
-            <div class="hero-card compact">
-                <div class="hero-text">
-                    <h2>의약품 제품 허가·주성분 조회</h2>
-                    <p>전문의약품과 일반의약품의 주성분, 약효분류, 품목허가일, 저장방법 등 허가 정보를 조회합니다.</p>
-                </div>
+        <!-- [탭 02] 식약처 허가·성분 전문 색인 -->
+        <section id="tab-permission" class="tab-panel" aria-label="허가 및 성분 색인">
+            <search aria-label="의약품 제품 허가 및 주성분 검색">
+                <form id="prmsnSearchForm" class="ledger-sheet" action="/api/permission-search/" method="GET" novalidate>
+                    <div class="command-grid prmsn-grid">
+                        <div class="field-cell">
+                            <label for="prmsnSpcltySelect" class="field-label">전문 · 일반 구분</label>
+                            <select id="prmsnSpcltySelect" name="spclty" class="control-select">
+                                <option value="전체">전문 · 일반 전체</option>
+                                <option value="일반의약품">일반의약품</option>
+                                <option value="전문의약품">전문의약품</option>
+                            </select>
+                        </div>
 
-                <div class="unified-search-bar">
-                    <select id="prmsnSpcltySelect" class="search-select" aria-label="전문/일반 구분">
-                        <option value="전체">전문·일반 전체</option>
-                        <option value="일반의약품">일반의약품</option>
-                        <option value="전문의약품">전문의약품</option>
-                    </select>
-                    <input
-                        type="text"
-                        id="prmsnSearchInput"
-                        placeholder="품목명 입력 (예: 아모디핀, 리피토, 오메프라졸, 포도당...)"
-                        autocomplete="off"
-                    >
-                    <button type="button" id="prmsnSearchBtn" class="primary-btn">허가정보 조회</button>
-                </div>
-            </div>
+                        <div class="field-cell">
+                            <label for="prmsnFieldSelect" class="field-label">조회 기준</label>
+                            <select id="prmsnFieldSelect" name="field" class="control-select">
+                                <option value="item_name">품목명</option>
+                                <option value="entp">제조 · 수입사명</option>
+                            </select>
+                        </div>
 
-            <div id="prmsnStatusMessage" class="status-message hidden"></div>
-            <div id="prmsnResultList" class="card-grid"></div>
-            <nav id="prmsnPagination" class="pagination-nav hidden" aria-label="허가 조회 페이지 이동"></nav>
+                        <div class="field-cell field-query-cell">
+                            <label for="prmsnSearchInput" class="field-label">조회 키워드</label>
+                            <input
+                                type="search"
+                                id="prmsnSearchInput"
+                                name="q"
+                                class="control-input"
+                                placeholder="예: 아모디핀, 리피토, 오메프라졸, 한미약품"
+                                autocorrect="off"
+                                autocapitalize="none"
+                                spellcheck="false"
+                                enterkeyhint="search"
+                            >
+                        </div>
+
+                        <div class="field-cell field-action-cell">
+                            <button type="submit" id="prmsnSearchBtn" class="btn-primary">허가 원장 조회</button>
+                        </div>
+                    </div>
+                </form>
+            </search>
+
+            <p id="prmsnStatusMessage" class="state-banner hidden" role="status" aria-live="polite"></p>
+            <div id="prmsnResultList" class="dossier-grid"></div>
+            <nav id="prmsnPagination" class="pagination-bar hidden" aria-label="허가 색인 페이지 이동"></nav>
         </section>
 
-        <!-- ==========================================================
-             [탭 3] 내 약통 & 안전 복약 리포트
-             - 연결 JS: Frontend/app.js :: loadPillbox(), addToPillbox(), removeFromPillbox()
-             - 연결 백엔드: Backend/drugs/views.py :: api_pillbox()
-        =========================================================== -->
-        <section id="tab-pillbox" class="tab-panel">
-            <div class="pillbox-header-card">
-                <div class="hero-text">
-                    <h2>내 약통 &amp; 주성분 중복·병용 안전 리포트</h2>
-                    <p>복용 중이거나 상비약으로 보관 중인 약을 등록하면 주성분 중복 위험과 주요 주의사항을 자동으로 분석합니다.</p>
-                </div>
-            </div>
-
-            <div id="safetyReportBox" class="safety-report-box"></div>
-            <div id="pillboxList" class="card-grid"></div>
+        <!-- [탭 03] 내 약통 & 주성분 중복·병용 안전 리포트 (CRUD) -->
+        <section id="tab-pillbox" class="tab-panel" aria-label="내 약통 및 복약 안전점검">
+            <div id="safetyReportBox" class="safety-ledger" aria-live="polite"></div>
+            <div id="pillboxList" class="dossier-grid"></div>
         </section>
     </main>
 
-    <!-- 모바일 하단 고정 탭 네비게이션 바 -->
-    <nav class="mobile-bottom-nav" aria-label="모바일 하단 메뉴">
-        <button type="button" class="m-nav-btn active" data-tab="tab-unified">
-            <span>통합검색</span>
+    <!-- 우측 하단 반반 배색 테마 스위처 (기본 포레스트·베이지 + 추천 깔맞춤 3종) -->
+    <aside class="theme-switcher" aria-label="배경 배색 테마 선택">
+        <button
+            type="button"
+            class="theme-swatch-circle t-forest"
+            data-theme-choice="forest"
+            aria-pressed="true"
+            aria-label="포레스트 초록 · 베이지 테마 (기본)"
+            title="포레스트 초록 · 베이지 (기본)"
+        ></button>
+        <button
+            type="button"
+            class="theme-swatch-circle t-navy"
+            data-theme-choice="navy"
+            aria-pressed="false"
+            aria-label="노르딕 네이비 · 아이스블루 테마"
+            title="노르딕 네이비 · 아이스블루"
+        ></button>
+        <button
+            type="button"
+            class="theme-swatch-circle t-walnut"
+            data-theme-choice="walnut"
+            aria-pressed="false"
+            aria-label="에스프레소 월넛 · 오트밀샌드 테마"
+            title="에스프레소 월넛 · 오트밀샌드"
+        ></button>
+        <button
+            type="button"
+            class="theme-swatch-circle t-plum"
+            data-theme-choice="plum"
+            aria-pressed="false"
+            aria-label="플럼 버건디 · 블러시크림 테마"
+            title="플럼 버건디 · 블러시크림"
+        ></button>
+    </aside>
+
+    <!-- 모바일 하단 고정 도크 -->
+    <nav class="mobile-dock" aria-label="모바일 하단 메뉴">
+        <button type="button" class="m-nav-btn active" data-tab="tab-unified" aria-current="page">
+            <span class="m-idx">01</span>
+            <span>통합탐색</span>
         </button>
         <button type="button" class="m-nav-btn" data-tab="tab-permission">
-            <span>허가·성분</span>
+            <span class="m-idx">02</span>
+            <span>허가색인</span>
         </button>
         <button type="button" class="m-nav-btn" data-tab="tab-pillbox">
-            <span>내 약통 <b id="mPillboxCount">0</b></span>
+            <span class="m-idx">03</span>
+            <span>내 약통 <strong id="mPillboxCount">0</strong></span>
         </button>
     </nav>
 
-    <!-- 상세 정보 모달 팝업 (Frontend/app.js :: openDetailModal() ➔ GET /api/drug-detail/) -->
-    <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalDialogTitle">
-        <div class="modal-content">
-            <button type="button" id="closeModalBtn" class="close-btn" aria-label="닫기">&times;</button>
-            <div id="modalBody"></div>
+    <!-- [모달 1] 의약품 3-in-1 통합 상세 모노그래프 (네이티브 dialog) -->
+    <dialog id="detailModal" class="clinical-dialog detail-dialog" closedby="any" aria-labelledby="modalDialogTitle">
+        <div class="dialog-topbar">
+            <span class="dialog-eyebrow">식약처 공공데이터 통합 상세 명세서</span>
+            <form method="dialog">
+                <button type="submit" value="close" class="dialog-close-btn" aria-label="상세 창 닫기">닫기 ✕</button>
+            </form>
         </div>
-    </div>
+        <div id="modalBody" class="dialog-scroll-body"></div>
+    </dialog>
 
-    <!-- 토스트 알림 -->
-    <div id="toastNotice" class="toast hidden" role="status" aria-live="polite"></div>
+    <!-- [모달 2] 내 약통 등록(Create) · 복용정보 수정(Update) 전용 모달 (네이티브 dialog) -->
+    <dialog id="pillboxModal" class="clinical-dialog pillbox-dialog" closedby="any" aria-labelledby="pillboxDialogTitle">
+        <div class="dialog-topbar">
+            <span id="pillboxDialogModeLabel" class="dialog-eyebrow">내 약통 복약 기록 등록</span>
+            <form method="dialog">
+                <button type="submit" value="cancel" class="dialog-close-btn" aria-label="복약 기록 창 닫기">닫기 ✕</button>
+            </form>
+        </div>
+        <form id="pillboxForm" class="pillbox-form-body">
+            <h2 id="pillboxDialogTitle" class="dialog-drug-heading">의약품 복약 설정</h2>
+            <p id="pillboxTargetMeta" class="dialog-drug-meta"></p>
 
-    <script src="app.js"></script>
+            <div class="form-stack">
+                <span class="field-label">빠른 복용 시간대 선택</span>
+                <div class="preset-chip-row">
+                    <button type="button" class="preset-chip" data-preset="아침·저녁 식후 30분">아침·저녁 식후 30분</button>
+                    <button type="button" class="preset-chip" data-preset="하루 3회 식후 30분">하루 3회 식후 30분</button>
+                    <button type="button" class="preset-chip" data-preset="아침 식전 1회">아침 식전 1회</button>
+                    <button type="button" class="preset-chip" data-preset="취침 전 1회">취침 전 1회</button>
+                    <button type="button" class="preset-chip" data-preset="증상 시 수시 복용">증상 시 수시 복용</button>
+                </div>
+            </div>
+
+            <div class="form-stack">
+                <label for="pillboxDosageInput" class="field-label">복용 시간대 및 횟수 <span aria-hidden="true">*</span></label>
+                <input
+                    type="text"
+                    id="pillboxDosageInput"
+                    name="dosageTime"
+                    class="control-input"
+                    maxlength="100"
+                    required
+                    placeholder="예: 아침·저녁 식후 30분 1정씩"
+                >
+            </div>
+
+            <div class="form-stack">
+                <label for="pillboxMemoInput" class="field-label">복용 목적 · 개인 메모 (선택, 최대 255자)</label>
+                <textarea
+                    id="pillboxMemoInput"
+                    name="memo"
+                    class="control-textarea"
+                    rows="3"
+                    maxlength="255"
+                    placeholder="예: 감기몸살 상비약 / 위장약과 함께 처방받음 / 졸음 주의"
+                ></textarea>
+            </div>
+
+            <div class="dialog-form-actions">
+                <button type="button" id="pillboxCancelBtn" class="btn-ghost">취소</button>
+                <button type="submit" id="pillboxSubmitBtn" class="btn-primary">약통에 저장</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- 토스트 상태 알림 -->
+    <div id="toastNotice" class="toast-banner hidden" role="status" aria-live="polite"></div>
+
+    <script nonce="{{ csp_nonce }}" src="app.js" defer></script>
 </body>
 </html>

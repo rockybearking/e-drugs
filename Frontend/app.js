@@ -1,133 +1,123 @@
 /**
- * ================================================================================
- * [파일명] Frontend/app.js
- * [역할] 알약이가 (e-Drug Care) 클라이언트 사이드 비동기 API 컨트롤러 및 UI 상태 관리 모듈
- * ================================================================================
- *
- * [프론트엔드 ➔ 백엔드 아키텍처 호출 흐름 (출발지 ➔ 목적지)]
- * 1. 서버 상태 및 캐시 확인:
- *    - `checkBackendStatus()` ➔ `GET /api/status/`
- *    - 목적지: `Backend/drugs/urls.py` ➔ `Backend/drugs/views.py :: api_status()`
- * 2. 통합 스마트 검색 (검색어 + 다중 낱알 외형 조건):
- *    - `runUnifiedSearch()` ➔ `GET /api/unified-search/?q=...&shapes=...&colors=...`
- *    - 목적지: `Backend/drugs/views.py :: api_unified_search()` ➔ `Backend/drugs/services.py :: unified_drug_search()`
- * 3. 의약품 제품 허가·성분 전문 조회:
- *    - `runPermissionSearch()` ➔ `GET /api/permission-search/?q=...&spclty=...`
- *    - 목적지: `Backend/drugs/views.py :: api_permission_search()` ➔ `Backend/drugs/services.py :: fetch_prmsn_list()`
- * 4. 의약품 카드 클릭 시 3대 OpenAPI 상세 교차 조회:
- *    - `openDetailModal(item)` ➔ `GET /api/drug-detail/?itemSeq=...&itemName=...`
- *    - 목적지: `Backend/drugs/views.py :: api_drug_detail()` ➔ `Backend/drugs/services.py :: enrich_single_drug_detail()`
- * 5. 내 약통 (복약 수첩) 조회 / 추가 / 삭제 및 주성분 중복 점검:
- *    - `loadPillbox()` / `addToPillbox()` / `removeFromPillbox()` ➔ `GET | POST | DELETE /api/pillbox/`
- *    - 목적지: `Backend/drugs/views.py :: api_pillbox()` ➔ `Backend/drugs/models.py :: SavedDrug`
- *
- * [보안 및 모던 JS 적용 사항]
- * - `escapeHtml()`: 모든 동적 텍스트 바인딩 시 HTML 특수문자 이스케이프로 Reflected/Stored XSS 원천 차단
- * - `sanitizeHttpUrl()`: `<img src>` 바인딩 전 `http:` / `https:` 프로토콜만 허용하여 `javascript:` URI 공격 차단
- * - `AbortController`: 연속 검색 클릭 시 이전 진행 중인 네트워크 요청을 즉시 취소하여 레이스 컨디션 방지
- * ================================================================================
+ * [역할] 알약이가 프론트엔드 배색 테마·검색·모달·내 약통(CRUD) 비동기 컨트롤러
+ * [경로] Frontend/index.html (<script defer>) -> Backend/drugs/views.py (/api/*) -> DOM 렌더링
+ * [수정] 페이지당 카드 표시 개수를 바꾸려면 아래 PAGE_SIZE 상수를 조정하세요.
  */
 
-const DIRECT_ENDPOINTS = {
-    EASY: "https://apis.data.go.kr/1471000/DrbEasyDrugInfoService/getDrbEasyDrugList",
-    GRAIN: "https://apis.data.go.kr/1471000/MdcinGrnIdntfcInfoService03/getMdcinGrnIdntfcInfoList03",
-    PRMSN_LIST: "https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService08/getDrugPrdtPrmsnInq08",
-    PRMSN_DTL: "https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService08/getDrugPrdtPrmsnDtlInq08",
+const PAGE_SIZE = 12;
+const THEME_STORAGE_KEY = "edrugs-theme";
+const VALID_THEMES = new Set(["forest", "navy", "walnut", "plum"]);
+
+const CHAPTER_TITLES = {
+    "tab-unified": "통합 의약품 및 낱알 외형 탐색",
+    "tab-permission": "식약처 품목허가 · 주성분 색인",
+    "tab-pillbox": "내 약통 관리 및 주성분 중복 점검",
 };
 
-const DEFAULT_STATIC_ENCODED_KEY =
-    "s%2FvWNiKH1YndVRu2mPOq7OXAIj%2Byk0M3JTgvN%2B8UVdSFPq8SBR7zuUdG3mxklTrj6WYIiUidSIUwgE8bz09fzQ%3D%3D";
-
-// [수정 가이드] 한 페이지에 표시할 의약품 카드 개수를 12개에서 15개로 바꾸고 싶다면 아래 값을 15로 변경하세요.
-const ITEMS_PER_PAGE = 12;
-
-const STANDARD_SHAPES = new Set([
-    "원형",
-    "타원형",
-    "장방형",
-    "반원형",
-    "삼각형",
-    "사각형",
-    "마름모형",
-    "오각형",
-    "육각형",
-    "팔각형",
-]);
-
-const CHECKBOX_GROUP_IDS = [
-    "formCheckGroup",
-    "shapeCheckGroup",
-    "lineFrontCheckGroup",
-    "lineBackCheckGroup",
-    "colorCheckGroup",
+const FILTER_GROUPS = [
+    { key: "forms", id: "formCheckGroup", label: "제형" },
+    { key: "lineFront", id: "lineFrontCheckGroup", label: "앞분할" },
+    { key: "lineBack", id: "lineBackCheckGroup", label: "뒤분할" },
+    { key: "shapes", id: "shapeCheckGroup", label: "모양" },
+    { key: "colors", id: "colorCheckGroup", label: "색상" },
 ];
 
-let useDjangoBackend = false;
-let unifiedSearchState = { items: [], currentPage: 1 };
-let prmsnSearchState = { items: [], currentPage: 1 };
-
+let unifiedItemsCache = [];
+let prmsnItemsCache = [];
 let unifiedAbortController = null;
 let prmsnAbortController = null;
-let toastTimerId = null;
-
-// DOM 참조 (Frontend/index.html 내 요소 ID와 1:1 매핑)
-const brandLogo = document.getElementById("brandLogo");
-const pillboxCountBadge = document.getElementById("pillboxCountBadge");
-const mPillboxCount = document.getElementById("mPillboxCount");
-
-const tabUnified = document.getElementById("tab-unified");
-const searchInput = document.getElementById("searchInput");
-const unifiedFieldSelect = document.getElementById("unifiedFieldSelect");
-const searchBtn = document.getElementById("searchBtn");
-
-const grainFilterBody = document.getElementById("grainFilterBody");
-const activeFilterBadges = document.getElementById("activeFilterBadges");
-const resetGrainFilterBtn = document.getElementById("resetGrainFilterBtn");
-const toggleGrainFilterBtn = document.getElementById("toggleGrainFilterBtn");
-const grainPrintInput = document.getElementById("grainPrintInput");
-const grainPrintExact = document.getElementById("grainPrintExact");
-
-const unifiedResultsSection = document.getElementById("unifiedResultsSection");
-const unifiedStatsBar = document.getElementById("unifiedStatsBar");
-const statusMessage = document.getElementById("statusMessage");
-const resultList = document.getElementById("resultList");
-const unifiedPagination = document.getElementById("unifiedPagination");
-
-const prmsnSpcltySelect = document.getElementById("prmsnSpcltySelect");
-const prmsnSearchInput = document.getElementById("prmsnSearchInput");
-const prmsnSearchBtn = document.getElementById("prmsnSearchBtn");
-const prmsnStatusMessage = document.getElementById("prmsnStatusMessage");
-const prmsnResultList = document.getElementById("prmsnResultList");
-const prmsnPagination = document.getElementById("prmsnPagination");
-
-const safetyReportBox = document.getElementById("safetyReportBox");
-const pillboxList = document.getElementById("pillboxList");
-
-const detailModal = document.getElementById("detailModal");
-const modalBody = document.getElementById("modalBody");
-const closeModalBtn = document.getElementById("closeModalBtn");
-const toastNotice = document.getElementById("toastNotice");
+let detailAbortController = null;
+let pillboxModalState = { mode: "create", item: null };
+let toastTimer = null;
 
 /**
- * [역할] XSS(교차 사이트 스크립팅) 방지를 위해 문자열 내 HTML 특수문자를 안전하게 이스케이프합니다.
+ * [역할] innerHTML 없이 안전한 DOM 요소를 생성해 XSS 싱크를 원천 차단합니다.
+ * [경로] 렌더 함수 전체 -> el() -> HTMLElement 반환
+ * [수정] 커스텀 data-* 속성이 필요하면 attrs.dataset 객체로 전달하세요.
  */
-function escapeHtml(value) {
-    if (value === null || value === undefined) return "";
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
+function el(tag, attrs = null, ...children) {
+    const node = document.createElement(tag);
+    if (attrs) {
+        for (const [key, val] of Object.entries(attrs)) {
+            if (val === null || val === undefined || val === false) continue;
+            if (key === "className") {
+                node.className = val;
+            } else if (key === "text") {
+                node.textContent = String(val);
+            } else if (key === "dataset" && typeof val === "object") {
+                for (const [dKey, dVal] of Object.entries(val)) {
+                    node.dataset[dKey] = String(dVal);
+                }
+            } else if (key.startsWith("on") && typeof val === "function") {
+                node.addEventListener(key.slice(2).toLowerCase(), val);
+            } else if (val === true) {
+                node.setAttribute(key, "");
+            } else {
+                node.setAttribute(key, String(val));
+            }
+        }
+    }
+    for (const child of children.flat()) {
+        if (child === null || child === undefined || child === false) continue;
+        node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return node;
 }
 
 /**
- * [역할] 이미지 URL 등에 `javascript:` 또는 `data:` 스킴이 주입되는 것을 차단하고
- * 오직 안전한 `http:` / `https:` URL만 반환합니다.
+ * [역할] 선택한 깔맞춤 배색 테마를 <html data-theme>에 반영하고 로컬 스토리지에 보존합니다.
+ * [경로] 우측 하단 .theme-swatch-circle 클릭 / 초기 로드 -> applyTheme()
+ * [수정] 새 테마를 추가하려면 style.css에 토큰을 정의하고 VALID_THEMES에 키를 추가하세요.
  */
-function sanitizeHttpUrl(rawUrl) {
-    if (!rawUrl) return "";
-    const trimmed = String(rawUrl).trim();
+function applyTheme(themeName, persist = true) {
+    const safeTheme = VALID_THEMES.has(themeName) ? themeName : "forest";
+    document.documentElement.dataset.theme = safeTheme;
+
+    document.querySelectorAll(".theme-swatch-circle[data-theme-choice]").forEach((btn) => {
+        const isActive = btn.dataset.themeChoice === safeTheme;
+        btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+
+    if (persist) {
+        try {
+            window.localStorage.setItem(THEME_STORAGE_KEY, safeTheme);
+        } catch {
+            /* 사설 브라우징 등 저장소 제한 환경 무시 */
+        }
+    }
+}
+
+/**
+ * [역할] 우측 하단 반반 동그라미 테마 버튼 이벤트를 연결하고 이전 선택 테마를 복원합니다.
+ * [경로] DOMContentLoaded -> initThemeSwitcher() -> applyTheme()
+ * [수정] 기본 시작 테마를 바꾸려면 fallback 문자열("forest")을 수정하세요.
+ */
+function initThemeSwitcher() {
+    let saved = "forest";
+    try {
+        saved = window.localStorage.getItem(THEME_STORAGE_KEY) || "forest";
+    } catch {
+        saved = "forest";
+    }
+    applyTheme(saved, false);
+
+    document.querySelectorAll(".theme-swatch-circle[data-theme-choice]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            if (btn.dataset.themeChoice) {
+                applyTheme(btn.dataset.themeChoice, true);
+            }
+        });
+    });
+}
+
+/**
+ * [역할] 외부 이미지 URL이 안전한 http/https 스킴인지 검증합니다.
+ * [경로] createDossierCard / renderDetailModalContent -> sanitizeUrl() -> 안전한 URL 또는 ""
+ * [수정] 특정 도메인만 허용하려면 parsed.hostname 화이트리스트 조건을 추가하세요.
+ */
+function sanitizeUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== "string") return "";
+    const trimmed = rawUrl.trim();
     if (!trimmed) return "";
     try {
         const parsed = new URL(trimmed, window.location.origin);
@@ -141,1434 +131,1375 @@ function sanitizeHttpUrl(rawUrl) {
 }
 
 /**
- * [역할] OpenAPI 응답 내 `<![CDATA[...]]>`와 `<ARTICLE title="...">`를 보존하면서 HTML 태그를 제거합니다.
+ * [역할] Django가 발급한 csrftoken 쿠키 값을 읽어 상태 변경 API 헤더에 전달합니다.
+ * [경로] apiJson() -> getCsrfToken() -> document.cookie 조회
+ * [수정] settings.py에서 CSRF_COOKIE_NAME을 변경한 경우 name 상수를 동일하게 맞추세요.
  */
-function stripTags(text) {
-    if (!text) return "";
-    return String(text)
-        .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-        .replace(/<(?:SECTION|ARTICLE)\b[^>]*?\btitle="([^"]+)"[^>]*?>/gi, "\n$1\n")
-        .replace(/<[^>]*>?/gm, " ")
-        .replace(/&nbsp;/g, " ")
-        .replace(/[ \t]+/g, " ")
-        .trim();
+function getCsrfToken() {
+    const name = "csrftoken=";
+    const parts = document.cookie ? document.cookie.split(";") : [];
+    for (const rawPart of parts) {
+        const part = rawPart.trim();
+        if (part.startsWith(name)) {
+            return decodeURIComponent(part.slice(name.length));
+        }
+    }
+    return "";
 }
 
-function cleanIngredientClient(rawIngr) {
-    if (!rawIngr) return "";
-    return String(rawIngr).replace(/\[[A-Za-z0-9_-]+\]/g, "").trim();
+/**
+ * [역할] 공통 JSON Fetch 래퍼 (CSRF 토큰 자동 첨부 및 HTTP 오류 메시지 표준화)
+ * [경로] 모든 프론트엔드 API 호출 -> apiJson() -> Backend/drugs/views.py
+ * [수정] 요청 타임아웃을 추가하려면 AbortSignal.any와 AbortSignal.timeout을 결합하세요.
+ */
+async function apiJson(url, options = {}) {
+    const method = (options.method || "GET").toUpperCase();
+    const headers = {
+        Accept: "application/json",
+        ...(options.headers || {}),
+    };
+    if (method !== "GET" && method !== "HEAD") {
+        headers["X-CSRFToken"] = getCsrfToken();
+    }
+    if (options.body && !headers["Content-Type"]) {
+        headers["Content-Type"] = "application/json";
+    }
+
+    const res = await fetch(url, {
+        credentials: "same-origin",
+        ...options,
+        method,
+        headers,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.error || `요청 처리 중 오류가 발생했습니다. (HTTP ${res.status})`);
+    }
+    return data;
 }
 
-function updatePillboxCount(count) {
-    if (pillboxCountBadge) pillboxCountBadge.textContent = String(count);
-    if (mPillboxCount) mPillboxCount.textContent = String(count);
-}
-
-function showToast(msg) {
-    if (!toastNotice) return;
-    toastNotice.textContent = msg;
-    toastNotice.classList.remove("hidden");
-    if (toastTimerId) clearTimeout(toastTimerId);
-    toastTimerId = setTimeout(() => {
-        toastNotice.classList.add("hidden");
+/**
+ * [역할] 화면 우측 하단 테마 버튼 위에 짧은 상태 알림 토스트를 띄웁니다.
+ * [경로] 내 약통 등록·수정·삭제 완료 시 -> showToast() -> #toastNotice
+ * [수정] 표시 유지 시간을 바꾸려면 setTimeout의 2600(ms) 값을 조정하세요.
+ */
+function showToast(message) {
+    const banner = document.getElementById("toastNotice");
+    if (!banner) return;
+    banner.textContent = message;
+    banner.classList.remove("hidden");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => {
+        banner.classList.add("hidden");
     }, 2600);
 }
 
-function showStatus(el, text, color = "#475569") {
-    if (!el) return;
-    el.textContent = text;
-    el.style.color = color;
-    el.classList.remove("hidden");
+/**
+ * [역할] 상태 안내 배너(#statusMessage, #prmsnStatusMessage)의 표시 여부와 오류 스타일을 갱신합니다.
+ * [경로] runUnifiedSearch / runPermissionSearch -> setBannerState()
+ * [수정] 오류 색상을 조정하려면 style.css의 .state-banner.is-error 규칙을 수정하세요.
+ */
+function setBannerState(elementId, message, isError = false) {
+    const banner = document.getElementById(elementId);
+    if (!banner) return;
+    if (!message) {
+        banner.textContent = "";
+        banner.classList.add("hidden");
+        banner.classList.remove("is-error");
+        return;
+    }
+    banner.textContent = message;
+    banner.classList.remove("hidden");
+    banner.classList.toggle("is-error", Boolean(isError));
 }
-
-function hideStatus(el) {
-    if (!el) return;
-    el.textContent = "";
-    el.classList.add("hidden");
-}
-
-// 초기화: 최초 접속 시 메인(홈) 화면 고정 및 백엔드 연동 상태 점검
-document.addEventListener("DOMContentLoaded", async () => {
-    initTabNavigation();
-    initGrainCheckboxGroups();
-    initEventListeners();
-    resetToHome(false);
-    await checkBackendStatus();
-});
 
 /**
- * [역할] Django 백엔드 서버 구동 여부를 확인하고 내 약통 개수 및 엔드포인트를 동기화합니다.
- * [연결 백엔드 목적지] GET /api/status/ ➔ Backend/drugs/urls.py ➔ Backend/drugs/views.py :: api_status()
+ * [역할] 좌측 레일 및 모바일 하단 도크의 내 약통 개수 배지를 동기화합니다.
+ * [경로] syncPillboxStatus / api_pillbox 응답 -> updatePillboxBadges()
+ * [수정] 배지 요소를 추가한 경우 아래 배열에 ID를 추가하세요.
  */
-async function checkBackendStatus() {
+function updatePillboxBadges(count) {
+    const safeCount = Number.isFinite(Number(count)) ? Number(count) : 0;
+    for (const id of ["pillboxCountBadge", "mPillboxCount"]) {
+        const node = document.getElementById(id);
+        if (node) node.textContent = String(safeCount);
+    }
+}
+
+/**
+ * [역할] 초기 진입 시 내 약통 보관 건수를 동기화하고 빈 캐시 DB 시드를 트리거합니다.
+ * [경로] DOMContentLoaded -> syncPillboxStatus() -> GET /api/status/
+ * [수정] 초기 로드 시 추가 상태값이 필요하면 응답 처리 로직을 확장하세요.
+ */
+async function syncPillboxStatus() {
     try {
-        const resp = await fetch("/api/status/", { method: "GET" });
-        if (resp.ok) {
-            const data = await resp.json();
-            useDjangoBackend = true;
-            updatePillboxCount(data.pillboxCount ?? 0);
-
-            if (data.endpoints) {
-                if (data.endpoints.easy) DIRECT_ENDPOINTS.EASY = `${data.endpoints.easy}/getDrbEasyDrugList`;
-                if (data.endpoints.grain) DIRECT_ENDPOINTS.GRAIN = `${data.endpoints.grain}/getMdcinGrnIdntfcInfoList03`;
-                if (data.endpoints.permission) {
-                    DIRECT_ENDPOINTS.PRMSN_LIST = `${data.endpoints.permission}/getDrugPrdtPrmsnInq08`;
-                    DIRECT_ENDPOINTS.PRMSN_DTL = `${data.endpoints.permission}/getDrugPrdtPrmsnDtlInq08`;
-                }
-            }
-            return;
-        }
+        const data = await apiJson("/api/status/");
+        updatePillboxBadges(data.pillboxCount ?? 0);
     } catch {
-        // 정적 파일 단독 실행 환경 폴백
-    }
-    useDjangoBackend = false;
-    updatePillboxCount(getLocalPillbox().length);
-}
-
-/* ==========================================================================
-   메인(홈) 화면 복귀 & 탭 네비게이션
-   ========================================================================== */
-function setGrainFilterExpanded(expanded) {
-    grainFilterBody.classList.toggle("collapsed", !expanded);
-    toggleGrainFilterBtn.setAttribute("aria-expanded", String(expanded));
-    toggleGrainFilterBtn.textContent = expanded ? "외형 조건 접기 ▲" : "외형 조건 펼치기 ▼";
-}
-
-function resetGrainFilters() {
-    grainPrintInput.value = "";
-    grainPrintExact.checked = false;
-
-    CHECKBOX_GROUP_IDS.forEach((groupId) => {
-        const groupEl = document.getElementById(groupId);
-        if (!groupEl) return;
-        groupEl.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-            cb.checked = cb.dataset.role === "all";
-        });
-    });
-
-    updateActiveFilterBadges();
-}
-
-function resetToHome(scrollTop = true) {
-    if (unifiedAbortController) {
-        unifiedAbortController.abort();
-        unifiedAbortController = null;
-    }
-
-    document.querySelectorAll(".nav-btn, .m-nav-btn").forEach((b) => {
-        b.classList.toggle("active", b.dataset.tab === "tab-unified");
-    });
-    document.querySelectorAll(".tab-panel").forEach((panel) => {
-        panel.classList.toggle("active", panel.id === "tab-unified");
-    });
-
-    unifiedFieldSelect.value = "itemName";
-    searchInput.value = "";
-    resetGrainFilters();
-
-    // 홈 모드: 검색창 + 모두 펼쳐진 낱알 식별기만 정중앙에 표시
-    tabUnified.classList.add("is-home");
-    setGrainFilterExpanded(true);
-    toggleGrainFilterBtn.classList.add("hidden");
-
-    unifiedSearchState = { items: [], currentPage: 1 };
-    resultList.innerHTML = "";
-    hideStatus(statusMessage);
-    unifiedStatsBar.classList.add("hidden");
-    unifiedPagination.classList.add("hidden");
-    unifiedPagination.innerHTML = "";
-    unifiedResultsSection.classList.add("hidden");
-
-    if (scrollTop) {
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        /* 네트워크 미연결 시 기본 배지 값(0) 유지 */
     }
 }
 
-function initTabNavigation() {
-    const allNavBtns = document.querySelectorAll(".nav-btn, .m-nav-btn");
-    allNavBtns.forEach((btn) => {
-        btn.addEventListener("click", () => {
-            switchTab(btn.dataset.tab);
-        });
-    });
-
-    brandLogo?.addEventListener("click", () => {
-        resetToHome(true);
-    });
-    brandLogo?.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            resetToHome(true);
+/**
+ * [역할] 3개 메뉴 탭 전환 및 상단 워크벤치 제목을 갱신합니다.
+ * [경로] 좌측 .nav-btn / 모바일 .m-nav-btn 클릭 -> switchTab() -> 탭 활성화
+ * [수정] 새 탭 추가 시 CHAPTER_TITLES 객체에 제목을 등록하세요.
+ */
+function switchTab(targetId) {
+    document.querySelectorAll(".nav-btn, .m-nav-btn").forEach((btn) => {
+        const isCurrent = btn.dataset.tab === targetId;
+        btn.classList.toggle("active", isCurrent);
+        if (isCurrent) {
+            btn.setAttribute("aria-current", "page");
+        } else {
+            btn.removeAttribute("aria-current");
         }
     });
-}
 
-async function switchTab(targetId) {
-    document.querySelectorAll(".nav-btn, .m-nav-btn").forEach((b) => {
-        b.classList.toggle("active", b.dataset.tab === targetId);
-    });
     document.querySelectorAll(".tab-panel").forEach((panel) => {
         panel.classList.toggle("active", panel.id === targetId);
     });
 
+    const titleText = CHAPTER_TITLES[targetId];
+    const heading = document.getElementById("workspaceHeading");
+    if (titleText && heading) {
+        heading.textContent = titleText;
+    }
+
     if (targetId === "tab-pillbox") {
-        await loadPillbox();
+        loadPillbox();
     }
 }
 
-/* ==========================================================================
-   낱알 식별기 체크박스 다중 선택 & 활성 조건 요약 배지
-   ========================================================================== */
-function getCheckedValues(groupId) {
-    const groupEl = document.getElementById(groupId);
-    if (!groupEl) return [];
+/**
+ * [역할] 특정 외형 조건 그룹에서 선택된 체크박스 값 배열을 반환합니다 ('전체' 선택 시 빈 배열).
+ * [경로] updateActiveFilterBadges / runUnifiedSearch -> getCheckedValues()
+ * [수정] 단일 선택 모드로 바꾸려면 initCheckGroups()의 체크 해제 로직을 조정하세요.
+ */
+function getCheckedValues(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return [];
+    const allBox = container.querySelector('input[data-role="all"]');
+    if (allBox && allBox.checked) return [];
     return Array.from(
-        groupEl.querySelectorAll('input[type="checkbox"]:not([data-role="all"]):checked')
+        container.querySelectorAll('input[type="checkbox"]:not([data-role="all"]):checked')
     ).map((cb) => cb.value);
 }
 
-function getGrainFilterParams() {
-    const forms = getCheckedValues("formCheckGroup");
-    const shapes = getCheckedValues("shapeCheckGroup");
-    const lineFront = getCheckedValues("lineFrontCheckGroup");
-    const lineBack = getCheckedValues("lineBackCheckGroup");
-    const colors = getCheckedValues("colorCheckGroup");
-    const printText = grainPrintInput.value.trim();
-    const printExact = grainPrintExact.checked;
-
-    const hasAppearanceFilter = Boolean(
-        forms.length ||
-            shapes.length ||
-            lineFront.length ||
-            lineBack.length ||
-            colors.length ||
-            printText
-    );
-
-    return {
-        forms,
-        shapes,
-        lineFront,
-        lineBack,
-        colors,
-        printText,
-        printExact,
-        hasAppearanceFilter,
-    };
-}
-
+/**
+ * [역할] 활성화된 낱알 외형 조건 요약 배지(#activeFilterBadges)를 실시간 렌더링합니다.
+ * [경로] 체크박스 변경 / 각인 입력 -> updateActiveFilterBadges()
+ * [수정] 배지 표기 형식을 바꾸려면 tags 문자열 포맷을 수정하세요.
+ */
 function updateActiveFilterBadges() {
-    const f = getGrainFilterParams();
-    const badges = [];
+    const badgeWrap = document.getElementById("activeFilterBadges");
+    if (!badgeWrap) return;
 
-    if (f.printText) {
-        badges.push(`식별문자: ${f.printText}${f.printExact ? "(일치)" : ""}`);
+    const tags = [];
+    const printVal = (document.getElementById("grainPrintInput")?.value || "").trim();
+    const isExact = Boolean(document.getElementById("grainPrintExact")?.checked);
+    if (printVal) {
+        tags.push(`각인: ${printVal}${isExact ? " (정확일치)" : ""}`);
     }
-    if (f.forms.length) badges.push(`제형: ${f.forms.join(", ")}`);
-    if (f.shapes.length) badges.push(`모양: ${f.shapes.join(", ")}`);
-    if (f.colors.length) badges.push(`색상: ${f.colors.join(", ")}`);
-    if (f.lineFront.length) badges.push(`분할선[앞]: ${f.lineFront.join(", ")}`);
-    if (f.lineBack.length) badges.push(`분할선[뒤]: ${f.lineBack.join(", ")}`);
 
-    activeFilterBadges.innerHTML = badges
-        .map((txt) => `<span class="active-filter-tag">${escapeHtml(txt)}</span>`)
-        .join("");
+    for (const group of FILTER_GROUPS) {
+        const vals = getCheckedValues(group.id);
+        if (vals.length > 0) {
+            tags.push(`${group.label}: ${vals.join("·")}`);
+        }
+    }
+
+    badgeWrap.replaceChildren(
+        ...tags.map((label) => el("span", { className: "active-filter-tag", text: label }))
+    );
 }
 
-function initGrainCheckboxGroups() {
-    CHECKBOX_GROUP_IDS.forEach((groupId) => {
-        const groupEl = document.getElementById(groupId);
-        if (!groupEl) return;
+/**
+ * [역할] 낱알 외형 매트릭스의 '전체' 체크박스와 개별 조건 체크박스 간 상호 배타 상태를 관리합니다.
+ * [경로] DOMContentLoaded -> initCheckGroups() -> 각 fieldset change 이벤트 바인딩
+ * [수정] 조건 그룹 추가 시 상단 FILTER_GROUPS 배열에 항목을 추가하세요.
+ */
+function initCheckGroups() {
+    for (const group of FILTER_GROUPS) {
+        const container = document.getElementById(group.id);
+        if (!container) continue;
 
-        const allBox = groupEl.querySelector('input[data-role="all"]');
-        const optionBoxes = Array.from(
-            groupEl.querySelectorAll('input[type="checkbox"]:not([data-role="all"])')
-        );
+        container.addEventListener("change", (e) => {
+            const target = e.target;
+            if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
 
-        allBox?.addEventListener("change", () => {
-            allBox.checked = true;
-            optionBoxes.forEach((cb) => {
-                cb.checked = false;
-            });
+            const allBox = container.querySelector('input[data-role="all"]');
+            const itemBoxes = Array.from(
+                container.querySelectorAll('input[type="checkbox"]:not([data-role="all"])')
+            );
+
+            if (target.dataset.role === "all") {
+                if (target.checked) {
+                    itemBoxes.forEach((cb) => {
+                        cb.checked = false;
+                    });
+                } else if (!itemBoxes.some((cb) => cb.checked)) {
+                    target.checked = true;
+                }
+            } else {
+                const anyChecked = itemBoxes.some((cb) => cb.checked);
+                if (allBox) allBox.checked = !anyChecked;
+            }
             updateActiveFilterBadges();
         });
+    }
 
-        optionBoxes.forEach((cb) => {
-            cb.addEventListener("change", () => {
-                const anyChecked = optionBoxes.some((opt) => opt.checked);
-                if (allBox) {
-                    allBox.checked = !anyChecked;
-                }
-                updateActiveFilterBadges();
-            });
+    document.getElementById("grainPrintInput")?.addEventListener("input", updateActiveFilterBadges);
+    document.getElementById("grainPrintExact")?.addEventListener("change", updateActiveFilterBadges);
+}
+
+/**
+ * [역할] 모든 낱알 외형 체크박스와 각인 입력값을 초기 상태('전체')로 되돌립니다.
+ * [경로] #resetGrainFilterBtn / resetToHome -> resetGrainFilters()
+ * [수정] 기본 선택값을 바꾸려면 해당 input을 찾아 checked = true로 설정하세요.
+ */
+function resetGrainFilters() {
+    for (const group of FILTER_GROUPS) {
+        const container = document.getElementById(group.id);
+        if (!container) continue;
+        container.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+            cb.checked = cb.dataset.role === "all";
         });
-    });
-
-    grainPrintInput.addEventListener("input", updateActiveFilterBadges);
-    grainPrintExact.addEventListener("change", updateActiveFilterBadges);
-
-    resetGrainFilterBtn.addEventListener("click", () => {
-        resetGrainFilters();
-    });
-
-    toggleGrainFilterBtn.addEventListener("click", () => {
-        const isCollapsed = grainFilterBody.classList.contains("collapsed");
-        setGrainFilterExpanded(isCollapsed);
-    });
+    }
+    const printInput = document.getElementById("grainPrintInput");
+    const printExact = document.getElementById("grainPrintExact");
+    if (printInput) printInput.value = "";
+    if (printExact) printExact.checked = false;
+    updateActiveFilterBadges();
 }
 
-function bindEnterKey(inputEl, handler) {
-    inputEl?.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.isComposing) {
-            e.preventDefault();
-            handler();
-        }
-    });
+/**
+ * [역할] 외형 조건판 접기·펼치기 상태를 전환합니다.
+ * [경로] #toggleGrainFilterBtn 클릭 -> setGrainPanelExpanded()
+ * [수정] 초기 접힘 상태를 원하면 DOMContentLoaded에서 setGrainPanelExpanded(false)를 호출하세요.
+ */
+function setGrainPanelExpanded(expanded) {
+    const body = document.getElementById("grainFilterBody");
+    const toggleBtn = document.getElementById("toggleGrainFilterBtn");
+    if (!body || !toggleBtn) return;
+    body.classList.toggle("collapsed", !expanded);
+    toggleBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
+    toggleBtn.textContent = expanded ? "외형 조건판 접기" : "외형 조건판 펼치기";
 }
 
-function initEventListeners() {
-    searchBtn.addEventListener("click", runUnifiedSearch);
-    bindEnterKey(searchInput, runUnifiedSearch);
-    bindEnterKey(grainPrintInput, runUnifiedSearch);
+/**
+ * [역할] 좌측 상단 브랜드 클릭 시 통합 탐색 초기 상태로 복귀합니다.
+ * [경로] #brandLogo 클릭 -> resetToHome()
+ * [수정] 초기화 시 포커스 대상을 바꾸려면 마지막 focus() 호출 요소를 변경하세요.
+ */
+function resetToHome() {
+    if (unifiedAbortController) unifiedAbortController.abort();
+    switchTab("tab-unified");
 
-    prmsnSearchBtn.addEventListener("click", runPermissionSearch);
-    bindEnterKey(prmsnSearchInput, runPermissionSearch);
+    const searchInput = document.getElementById("searchInput");
+    const fieldSelect = document.getElementById("unifiedFieldSelect");
+    if (searchInput) searchInput.value = "";
+    if (fieldSelect) fieldSelect.value = "itemName";
 
-    closeModalBtn.addEventListener("click", () => detailModal.classList.add("hidden"));
-    detailModal.addEventListener("click", (e) => {
-        if (e.target === detailModal) detailModal.classList.add("hidden");
-    });
-    document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape" && !detailModal.classList.contains("hidden")) {
-            detailModal.classList.add("hidden");
-        }
-    });
+    resetGrainFilters();
+    setGrainPanelExpanded(true);
+
+    unifiedItemsCache = [];
+    document.getElementById("unifiedResultsSection")?.classList.add("hidden");
+    document.getElementById("unifiedStatsBar")?.classList.add("hidden");
+    document.getElementById("unifiedPagination")?.classList.add("hidden");
+    document.getElementById("resultList")?.replaceChildren();
+    setBannerState("statusMessage", "");
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    searchInput?.focus();
 }
 
-/* ==========================================================================
-   공통 페이지네이션 (페이지당 12개, 화살표 + 숫자 네모칸 모두 지원)
-   ========================================================================== */
-function buildPageItems(totalPages, current) {
-    if (totalPages <= 9) {
-        return Array.from({ length: totalPages }, (_, i) => i + 1);
-    }
+/**
+ * [역할] 이미지가 없거나 로드 실패 시 알약 각인·형상을 도식화한 대체 미디어 박스를 생성합니다.
+ * [경로] createDossierCard / renderDetailModalContent -> createFallbackMedia()
+ * [수정] 대체 박스 문구를 바꾸려면 diagramText / captionText 조합을 수정하세요.
+ */
+function createFallbackMedia(item) {
+    const imprints = [item.printFront, item.printBack].filter(Boolean).join(" | ");
+    const diagramText = imprints || item.drugShape || item.etcOtcName || "이미지 없음";
+    const captionText =
+        [item.colorClass1, item.formCodeName].filter(Boolean).join(" · ") || "식별 도식";
 
-    const pages = new Set([1, totalPages]);
-    let start = Math.max(2, current - 2);
-    let end = Math.min(totalPages - 1, current + 2);
-
-    if (current <= 4) {
-        start = 2;
-        end = 6;
-    } else if (current >= totalPages - 3) {
-        start = totalPages - 5;
-        end = totalPages - 1;
-    }
-
-    for (let p = start; p <= end; p++) {
-        pages.add(p);
-    }
-
-    const sorted = Array.from(pages).sort((a, b) => a - b);
-    const result = [];
-    for (let i = 0; i < sorted.length; i++) {
-        if (i > 0 && sorted[i] - sorted[i - 1] > 1) {
-            result.push("...");
-        }
-        result.push(sorted[i]);
-    }
-    return result;
+    return el(
+        "div",
+        { className: "media" },
+        el("span", { className: "imprint-diagram", text: diagramText }),
+        el("span", { className: "media-caption", text: captionText })
+    );
 }
 
-function renderPagination(navEl, totalItems, currentPage, onPageSelect) {
-    if (!navEl) return;
-    if (totalItems <= 0) {
-        navEl.innerHTML = "";
-        navEl.classList.add("hidden");
+/**
+ * [역할] 단일 의약품 도시에(Dossier) 카드를 생성합니다 (스트레치드 상세 트리거 + 독립 액션 버튼).
+ * [경로] renderPaginatedCards / loadPillbox -> createDossierCard() -> .dossier-card 반환
+ * [수정] 카드 노출 항목을 추가하려면 .spec-chip-row 또는 .dossier-summary 생성부를 수정하세요.
+ */
+function createDossierCard(item, isPillbox = false) {
+    const safeImg = sanitizeUrl(item.itemImage);
+    let mediaNode;
+
+    if (safeImg) {
+        mediaNode = el("img", {
+            className: "dossier-photo",
+            src: safeImg,
+            alt: `${item.itemName || "의약품"} 외형 이미지`,
+            width: 132,
+            height: 106,
+            loading: "lazy",
+            decoding: "async",
+        });
+        mediaNode.addEventListener(
+            "error",
+            () => {
+                mediaNode.replaceWith(createFallbackMedia(item));
+            },
+            { once: true }
+        );
+    } else {
+        mediaNode = createFallbackMedia(item);
+    }
+
+    const etcLabel = item.etcOtcName || "분류 미상";
+    const isSpecial = etcLabel.includes("전문");
+
+    const headerNode = el(
+        "header",
+        null,
+        el(
+            "div",
+            { className: "dossier-meta-line" },
+            el("span", {
+                className: `rx-tag ${isSpecial ? "special" : "general"}`,
+                text: etcLabel,
+            }),
+            el("span", { text: item.entpName || "제조사 미상" }),
+            item.itemSeq ? el("span", { className: "seq-code", text: `#${item.itemSeq}` }) : null
+        ),
+        el(
+            "h3",
+            { className: "dossier-title" },
+            el("button", {
+                type: "button",
+                className: "card-trigger",
+                text: item.itemName || "품목명 미상",
+                onClick: () => openDetailModal(item),
+            })
+        )
+    );
+
+    const specChips = [];
+    if (item.className) {
+        specChips.push(el("span", { className: "spec-chip", text: item.className }));
+    }
+    const shapeColor = [item.drugShape, item.colorClass1, item.colorClass2]
+        .filter(Boolean)
+        .join(" · ");
+    if (shapeColor) {
+        specChips.push(el("span", { className: "spec-chip", text: shapeColor }));
+    }
+    const imprintText = [item.printFront, item.printBack].filter(Boolean).join(" | ");
+    if (imprintText) {
+        specChips.push(
+            el("span", { className: "spec-chip imprint", text: `각인 ${imprintText}` })
+        );
+    }
+    if (item.ediCode) {
+        specChips.push(el("span", { className: "spec-chip", text: `EDI ${item.ediCode}` }));
+    }
+
+    const summaryStr =
+        item.efcyQesitm ||
+        (item.itemIngrName
+            ? `주성분: ${item.itemIngrName}`
+            : "카드를 선택하면 효능·용법·외형·허가 통합 명세서를 조회합니다.");
+
+    const pillboxNote = isPillbox
+        ? el(
+              "div",
+              { className: "pillbox-note-box" },
+              el("span", {
+                  className: "pillbox-dosage-line",
+                  text: `복용 시간 · ${item.dosageTime || "시간대 미지정"}`,
+              }),
+              el("span", {
+                  className: "pillbox-memo-line",
+                  text: item.memo
+                      ? `메모 · ${item.memo}`
+                      : `개인 메모 없음${item.createdAt ? ` · 등록 ${item.createdAt}` : ""}`,
+              })
+          )
+        : null;
+
+    const bodyNode = el(
+        "div",
+        { className: "dossier-body" },
+        specChips.length > 0 ? el("div", { className: "spec-chip-row" }, specChips) : null,
+        el("p", { className: "dossier-summary", text: summaryStr }),
+        pillboxNote
+    );
+
+    const sourceCaption =
+        Array.isArray(item.sources) && item.sources.length > 0
+            ? `데이터 · ${item.sources.join(" + ")}`
+            : isPillbox
+              ? `등록일 · ${item.createdAt || "-"}`
+              : "식약처 공공데이터";
+
+    const actionButtons = isPillbox
+        ? [
+              el("button", {
+                  type: "button",
+                  className: "btn-card-action",
+                  text: "복용·메모 수정",
+                  onClick: () => openPillboxModal(item, "edit"),
+              }),
+              el("button", {
+                  type: "button",
+                  className: "btn-danger",
+                  text: "삭제",
+                  onClick: () => removeFromPillbox(item),
+              }),
+          ]
+        : [
+              el("button", {
+                  type: "button",
+                  className: "btn-card-action",
+                  text: "+ 내 약통 등록",
+                  onClick: () => openPillboxModal(item, "create"),
+              }),
+          ];
+
+    const footerNode = el(
+        "footer",
+        null,
+        el("span", { className: "source-caption", text: sourceCaption }),
+        el("div", { className: "card-action-group" }, actionButtons)
+    );
+
+    return el("article", { className: "dossier-card" }, mediaNode, headerNode, bodyNode, footerNode);
+}
+
+/**
+ * [역할] 검색 결과 배열을 PAGE_SIZE 단위로 분할 렌더링하고 페이지 이동 버튼을 구성합니다.
+ * [경로] runUnifiedSearch / runPermissionSearch -> renderPaginatedCards()
+ * [수정] 페이지 버튼 노출 범위를 조정하려면 startPage / endPage 오프셋(2)을 수정하세요.
+ */
+function renderPaginatedCards(items, listContainer, paginationContainer, page = 1) {
+    if (!listContainer) return;
+    if (!Array.isArray(items) || items.length === 0) {
+        listContainer.replaceChildren();
+        paginationContainer?.classList.add("hidden");
+        paginationContainer?.replaceChildren();
         return;
     }
 
-    const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
-    navEl.innerHTML = "";
-    navEl.classList.remove("hidden");
+    const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+    const safePage = Math.min(Math.max(1, page), totalPages);
+    const slice = items.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-    const fragment = document.createDocumentFragment();
+    listContainer.replaceChildren(...slice.map((item) => createDossierCard(item, false)));
 
-    const prevBtn = document.createElement("button");
-    prevBtn.type = "button";
-    prevBtn.className = "page-btn arrow";
-    prevBtn.setAttribute("aria-label", "이전 페이지");
-    prevBtn.disabled = currentPage <= 1;
-    prevBtn.innerHTML = "&#8249;";
-    prevBtn.addEventListener("click", () => {
-        if (currentPage > 1) onPageSelect(currentPage - 1);
-    });
-    fragment.appendChild(prevBtn);
-
-    const pageItems = buildPageItems(totalPages, currentPage);
-    pageItems.forEach((entry) => {
-        if (entry === "...") {
-            const dots = document.createElement("span");
-            dots.className = "page-ellipsis";
-            dots.textContent = "···";
-            fragment.appendChild(dots);
-            return;
-        }
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = `page-btn${entry === currentPage ? " active" : ""}`;
-        btn.textContent = String(entry);
-        if (entry === currentPage) {
-            btn.setAttribute("aria-current", "page");
-        }
-        btn.addEventListener("click", () => {
-            if (entry !== currentPage) onPageSelect(entry);
-        });
-        fragment.appendChild(btn);
-    });
-
-    const nextBtn = document.createElement("button");
-    nextBtn.type = "button";
-    nextBtn.className = "page-btn arrow";
-    nextBtn.setAttribute("aria-label", "다음 페이지");
-    nextBtn.disabled = currentPage >= totalPages;
-    nextBtn.innerHTML = "&#8250;";
-    nextBtn.addEventListener("click", () => {
-        if (currentPage < totalPages) onPageSelect(currentPage + 1);
-    });
-    fragment.appendChild(nextBtn);
-
-    navEl.appendChild(fragment);
-}
-
-function renderUnifiedPage(page, smoothScroll = true) {
-    const total = unifiedSearchState.items.length;
-    const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE));
-    const safePage = Math.max(1, Math.min(page, totalPages));
-    unifiedSearchState.currentPage = safePage;
-
-    const startIdx = (safePage - 1) * ITEMS_PER_PAGE;
-    const slice = unifiedSearchState.items.slice(startIdx, startIdx + ITEMS_PER_PAGE);
-
-    renderDrugCards(slice, resultList);
-    renderPagination(unifiedPagination, total, safePage, (nextPage) => {
-        renderUnifiedPage(nextPage, true);
-    });
-
-    if (smoothScroll) {
-        unifiedResultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!paginationContainer) return;
+    if (totalPages <= 1) {
+        paginationContainer.classList.add("hidden");
+        paginationContainer.replaceChildren();
+        return;
     }
-}
 
-function renderPrmsnPage(page, smoothScroll = true) {
-    const total = prmsnSearchState.items.length;
-    const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE));
-    const safePage = Math.max(1, Math.min(page, totalPages));
-    prmsnSearchState.currentPage = safePage;
+    const goPage = (nextPage) => {
+        renderPaginatedCards(items, listContainer, paginationContainer, nextPage);
+        listContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
 
-    const startIdx = (safePage - 1) * ITEMS_PER_PAGE;
-    const slice = prmsnSearchState.items.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+    const buttons = [];
+    buttons.push(
+        el("button", {
+            type: "button",
+            className: "page-btn",
+            text: "이전",
+            disabled: safePage === 1,
+            onClick: () => goPage(safePage - 1),
+        })
+    );
 
-    renderDrugCards(slice, prmsnResultList);
-    renderPagination(prmsnPagination, total, safePage, (nextPage) => {
-        renderPrmsnPage(nextPage, true);
-    });
+    const startPage = Math.max(1, safePage - 2);
+    const endPage = Math.min(totalPages, safePage + 2);
 
-    if (smoothScroll) {
-        prmsnResultList.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (startPage > 1) {
+        buttons.push(
+            el("button", {
+                type: "button",
+                className: "page-btn",
+                text: "1",
+                onClick: () => goPage(1),
+            })
+        );
+        if (startPage > 2) {
+            buttons.push(el("span", { className: "page-ellipsis", text: "…" }));
+        }
     }
+
+    for (let p = startPage; p <= endPage; p += 1) {
+        buttons.push(
+            el("button", {
+                type: "button",
+                className: `page-btn${p === safePage ? " active" : ""}`,
+                text: String(p),
+                "aria-current": p === safePage ? "page" : false,
+                onClick: () => goPage(p),
+            })
+        );
+    }
+
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            buttons.push(el("span", { className: "page-ellipsis", text: "…" }));
+        }
+        buttons.push(
+            el("button", {
+                type: "button",
+                className: "page-btn",
+                text: String(totalPages),
+                onClick: () => goPage(totalPages),
+            })
+        );
+    }
+
+    buttons.push(
+        el("button", {
+            type: "button",
+            className: "page-btn",
+            text: "다음",
+            disabled: safePage === totalPages,
+            onClick: () => goPage(safePage + 1),
+        })
+    );
+
+    paginationContainer.replaceChildren(...buttons);
+    paginationContainer.classList.remove("hidden");
 }
 
-/* ==========================================================================
-   [탭 1] 통합 스마트 검색 (검색어 + 낱알 외형 조건 통합)
-   - 연결 백엔드 목적지: GET /api/unified-search/ ➔ Backend/drugs/views.py :: api_unified_search()
-   ========================================================================== */
+/**
+ * [역할] 검색어와 낱알 외형 다중 조건을 조합해 식약처 3종 통합 검색 API를 호출합니다.
+ * [경로] #unifiedSearchForm submit -> runUnifiedSearch() -> GET /api/unified-search/
+ * [수정] 기본 조회 건수를 늘리려면 params.set("rows", "80") 파라미터를 추가하세요.
+ */
 async function runUnifiedSearch() {
-    const keyword = searchInput.value.trim();
-    const field = unifiedFieldSelect.value;
-    const filters = getGrainFilterParams();
+    const keyword = (document.getElementById("searchInput")?.value || "").trim();
+    const field = document.getElementById("unifiedFieldSelect")?.value || "itemName";
+    const printVal = (document.getElementById("grainPrintInput")?.value || "").trim();
+    const printExact = Boolean(document.getElementById("grainPrintExact")?.checked);
 
-    if (!keyword && !filters.hasAppearanceFilter) {
-        showToast("검색어를 입력하거나 알약 외형 조건을 하나 이상 선택해 주세요.");
+    const shapes = getCheckedValues("shapeCheckGroup");
+    const colors = getCheckedValues("colorCheckGroup");
+    const forms = getCheckedValues("formCheckGroup");
+    const lineFront = getCheckedValues("lineFrontCheckGroup");
+    const lineBack = getCheckedValues("lineBackCheckGroup");
+
+    const hasAppearance =
+        shapes.length > 0 ||
+        colors.length > 0 ||
+        forms.length > 0 ||
+        lineFront.length > 0 ||
+        lineBack.length > 0 ||
+        Boolean(printVal);
+
+    const resultsSection = document.getElementById("unifiedResultsSection");
+    const statsBar = document.getElementById("unifiedStatsBar");
+    const resultList = document.getElementById("resultList");
+    const pagination = document.getElementById("unifiedPagination");
+
+    resultsSection?.classList.remove("hidden");
+
+    if (!keyword && !hasAppearance) {
+        statsBar?.classList.add("hidden");
+        resultList?.replaceChildren();
+        pagination?.classList.add("hidden");
+        setBannerState(
+            "statusMessage",
+            "검색어를 입력하거나 아래 낱알 외형 식별 매트릭스에서 모양·색상·각인 조건을 1개 이상 선택해 주세요.",
+            true
+        );
         return;
     }
 
     if (unifiedAbortController) unifiedAbortController.abort();
     unifiedAbortController = new AbortController();
-    const { signal } = unifiedAbortController;
 
-    tabUnified.classList.remove("is-home");
-    toggleGrainFilterBtn.classList.remove("hidden");
-    setGrainFilterExpanded(false);
-    unifiedResultsSection.classList.remove("hidden");
+    setBannerState("statusMessage", "식약처 공공데이터 3종 및 로컬 외형 캐시를 교차 조회하고 있습니다...");
+    statsBar?.classList.add("hidden");
+    resultList?.replaceChildren();
+    pagination?.classList.add("hidden");
 
-    resultList.innerHTML = "";
-    unifiedPagination.innerHTML = "";
-    unifiedPagination.classList.add("hidden");
-    unifiedStatsBar.classList.add("hidden");
-    showStatus(statusMessage, "의약품 정보를 검색하고 있습니다...", "#2563eb");
+    const params = new URLSearchParams();
+    if (keyword) params.set("q", keyword);
+    params.set("field", field);
+    if (shapes.length) params.set("shapes", shapes.join(","));
+    if (colors.length) params.set("colors", colors.join(","));
+    if (forms.length) params.set("forms", forms.join(","));
+    if (lineFront.length) params.set("lineFront", lineFront.join(","));
+    if (lineBack.length) params.set("lineBack", lineBack.join(","));
+    if (printVal) params.set("print", printVal);
+    if (printExact) params.set("printExact", "1");
 
     try {
-        let items = [];
-        let counts = { mergedCount: 0, easyTotal: 0, grainTotal: 0, prmsnTotal: 0 };
+        const data = await apiJson(`/api/unified-search/?${params.toString()}`, {
+            signal: unifiedAbortController.signal,
+        });
 
-        if (useDjangoBackend) {
-            const params = new URLSearchParams({
-                q: keyword,
-                field,
-                rows: "60",
-            });
-            if (filters.shapes.length) params.set("shapes", filters.shapes.join(","));
-            if (filters.colors.length) params.set("colors", filters.colors.join(","));
-            if (filters.forms.length) params.set("forms", filters.forms.join(","));
-            if (filters.lineFront.length) params.set("lineFront", filters.lineFront.join(","));
-            if (filters.lineBack.length) params.set("lineBack", filters.lineBack.join(","));
-            if (filters.printText) params.set("print", filters.printText);
-            if (filters.printExact) params.set("printExact", "1");
+        unifiedItemsCache = Array.isArray(data.items) ? data.items : [];
+        const counts = data.counts || {};
 
-            const resp = await fetch(`/api/unified-search/?${params.toString()}`, { signal });
-            if (!resp.ok) throw new Error(`서버 응답 오류 (${resp.status})`);
-            const data = await resp.json();
-            items = data.items || [];
-            counts = data.counts || counts;
-        } else {
-            const res = await directUnifiedSearch(keyword, field, filters, signal);
-            items = res.items;
-            counts = res.counts;
-        }
+        const setStat = (id, num) => {
+            const node = document.getElementById(id);
+            if (node) node.textContent = `${Number(num || 0).toLocaleString()}건`;
+        };
+        setStat("statMergedCount", counts.mergedCount ?? unifiedItemsCache.length);
+        setStat("statEasyCount", counts.easyTotal ?? 0);
+        setStat("statGrainCount", counts.grainTotal ?? 0);
+        setStat("statPrmsnCount", counts.prmsnTotal ?? 0);
+        statsBar?.classList.remove("hidden");
 
-        document.getElementById("statMergedCount").textContent = `${counts.mergedCount}건`;
-        document.getElementById("statEasyCount").textContent = `${counts.easyTotal}건`;
-        document.getElementById("statGrainCount").textContent = `${counts.grainTotal}건`;
-        document.getElementById("statPrmsnCount").textContent = `${counts.prmsnTotal}건`;
-        unifiedStatsBar.classList.remove("hidden");
-
-        unifiedSearchState = { items, currentPage: 1 };
-
-        if (items.length === 0) {
-            showStatus(
-                statusMessage,
-                "선택하신 조건과 일치하는 의약품이 없습니다. 검색어 또는 외형 조건을 변경해 보세요.",
-                "#64748b"
+        if (unifiedItemsCache.length === 0) {
+            setBannerState(
+                "statusMessage",
+                "선택한 검색어 및 외형 조건과 일치하는 의약품을 찾지 못했습니다. 조건을 일부 해제해 다시 조회해 보세요."
             );
-            return;
+        } else {
+            setBannerState("statusMessage", "");
+            renderPaginatedCards(unifiedItemsCache, resultList, pagination, 1);
         }
-
-        hideStatus(statusMessage);
-        renderUnifiedPage(1, false);
     } catch (err) {
         if (err.name === "AbortError") return;
-        console.error(err);
-        showStatus(statusMessage, `조회 중 오류가 발생했습니다: ${err.message}`, "#dc2626");
+        setBannerState("statusMessage", err.message || "통합 검색 중 오류가 발생했습니다.", true);
     }
 }
 
-/* ==========================================================================
-   [탭 2] 의약품 제품 허가·주성분 전문 조회
-   - 연결 백엔드 목적지: GET /api/permission-search/ ➔ Backend/drugs/views.py :: api_permission_search()
-   ========================================================================== */
+/**
+ * [역할] 전문·일반 구분 및 품목명·제조사 기준으로 식약처 허가 원장을 조회합니다.
+ * [경로] #prmsnSearchForm submit -> runPermissionSearch() -> GET /api/permission-search/
+ * [수정] 검색 기준 옵션을 늘리려면 index.html의 #prmsnFieldSelect와 views.py를 함께 수정하세요.
+ */
 async function runPermissionSearch() {
-    const keyword = prmsnSearchInput.value.trim();
-    const spclty = prmsnSpcltySelect.value;
+    const keyword = (document.getElementById("prmsnSearchInput")?.value || "").trim();
+    const spclty = document.getElementById("prmsnSpcltySelect")?.value || "전체";
+    const field = document.getElementById("prmsnFieldSelect")?.value || "item_name";
+
+    const listEl = document.getElementById("prmsnResultList");
+    const paginationEl = document.getElementById("prmsnPagination");
 
     if (!keyword && spclty === "전체") {
-        showToast("조회할 품목명을 입력하거나 전문·일반 구분을 선택해 주세요.");
+        listEl?.replaceChildren();
+        paginationEl?.classList.add("hidden");
+        setBannerState(
+            "prmsnStatusMessage",
+            "품목명·제조사 키워드를 입력하거나 전문·일반 구분을 선택해 주세요.",
+            true
+        );
         return;
     }
 
     if (prmsnAbortController) prmsnAbortController.abort();
     prmsnAbortController = new AbortController();
-    const { signal } = prmsnAbortController;
 
-    prmsnResultList.innerHTML = "";
-    prmsnPagination.innerHTML = "";
-    prmsnPagination.classList.add("hidden");
-    showStatus(prmsnStatusMessage, "의약품 허가 정보를 조회하고 있습니다...", "#2563eb");
+    setBannerState("prmsnStatusMessage", "식약처 의약품 제품 허가 원장을 조회하고 있습니다...");
+    listEl?.replaceChildren();
+    paginationEl?.classList.add("hidden");
+
+    const params = new URLSearchParams({
+        q: keyword,
+        spclty,
+        field,
+    });
 
     try {
-        let items = [];
+        const data = await apiJson(`/api/permission-search/?${params.toString()}`, {
+            signal: prmsnAbortController.signal,
+        });
+        prmsnItemsCache = Array.isArray(data.items) ? data.items : [];
 
-        if (useDjangoBackend) {
-            const params = new URLSearchParams({ q: keyword, spclty });
-            const resp = await fetch(`/api/permission-search/?${params.toString()}`, { signal });
-            if (!resp.ok) throw new Error(`서버 오류 (${resp.status})`);
-            const data = await resp.json();
-            items = data.items || [];
-        } else {
-            const extra = { item_name: keyword, numOfRows: 60, pageNo: 1 };
-            if (spclty !== "전체") extra.spclty_pblc = spclty;
-            const raw = await fetchDirectApi(DIRECT_ENDPOINTS.PRMSN_LIST, extra, signal);
-            items = raw.items.map((r) => ({
-                itemSeq: r.ITEM_SEQ || "",
-                itemName: r.ITEM_NAME || "",
-                itemEngName: r.ITEM_ENG_NAME || "",
-                entpName: r.ENTP_NAME || "",
-                itemPermitDate: r.ITEM_PERMIT_DATE || "",
-                etcOtcName: r.SPCLTY_PBLC || "",
-                className: r.PRDUCT_TYPE || "",
-                itemIngrName: cleanIngredientClient(r.ITEM_INGR_NAME || ""),
-                itemImage: r.BIG_PRDT_IMG_URL || "",
-                ediCode: r.EDI_CODE || "",
-            }));
-        }
-
-        prmsnSearchState = { items, currentPage: 1 };
-
-        if (items.length === 0) {
-            showStatus(
-                prmsnStatusMessage,
-                "조건에 해당하는 의약품 허가 정보가 없습니다.",
-                "#64748b"
-            );
+        if (prmsnItemsCache.length === 0) {
+            setBannerState("prmsnStatusMessage", "조건에 해당하는 품목허가 데이터가 없습니다.");
             return;
         }
 
-        hideStatus(prmsnStatusMessage);
-        renderPrmsnPage(1, false);
+        setBannerState(
+            "prmsnStatusMessage",
+            `식약처 전체 허가 원장 ${Number(data.totalCount || prmsnItemsCache.length).toLocaleString()}건 중 상위 ${prmsnItemsCache.length}건을 표시합니다.`
+        );
+        renderPaginatedCards(prmsnItemsCache, listEl, paginationEl, 1);
     } catch (err) {
         if (err.name === "AbortError") return;
-        console.error(err);
-        showStatus(prmsnStatusMessage, `허가 정보 조회 실패: ${err.message}`, "#dc2626");
+        setBannerState("prmsnStatusMessage", err.message || "허가 조회 중 오류가 발생했습니다.", true);
     }
 }
 
-/* ==========================================================================
-   공통 의약품 카드 렌더링
-   ========================================================================== */
-function buildFallbackGraphicHtml(imprintLabel, subLabel) {
-    return `
-        <div class="pill-graphic-fallback">
-            <div class="pill-shape-badge">${escapeHtml(imprintLabel)}</div>
-            <span>${escapeHtml(subLabel)}</span>
-        </div>
-    `;
-}
-
-function renderDrugCards(items, container, isPillbox = false) {
-    container.innerHTML = "";
-    const fragment = document.createDocumentFragment();
-
-    items.forEach((item) => {
-        const card = document.createElement("div");
-        card.className = "card";
-
-        const safeImageUrl = sanitizeHttpUrl(item.itemImage);
-        const imprintFront = item.printFront || "";
-        const imprintBack = item.printBack || "";
-        const imprintLabel = [imprintFront, imprintBack].filter(Boolean).join(" / ") || "각인 없음";
-        const fallbackSubLabel = `${item.drugShape || "의약품"} · ${item.colorClass1 || "표준제형"}`;
-
-        const imageMarkup = safeImageUrl
-            ? `<img src="${escapeHtml(safeImageUrl)}" alt="${escapeHtml(item.itemName)}" class="card-img" loading="lazy">`
-            : buildFallbackGraphicHtml(imprintLabel, fallbackSubLabel);
-
-        const otcClass = (item.etcOtcName || "").includes("전문") ? "special" : "general";
-        const otcText = item.etcOtcName || "의약품";
-
-        const metaChips = [];
-        if (item.drugShape) {
-            metaChips.push(`<span class="meta-chip">${escapeHtml(item.drugShape)}</span>`);
-        }
-        if (item.colorClass1) {
-            metaChips.push(`<span class="meta-chip">${escapeHtml(item.colorClass1)}</span>`);
-        }
-        if (imprintFront || imprintBack) {
-            metaChips.push(`<span class="meta-chip imprint">각인: ${escapeHtml(imprintLabel)}</span>`);
-        }
-        if (item.className) {
-            metaChips.push(`<span class="meta-chip">${escapeHtml(item.className)}</span>`);
-        }
-
-        const summaryText =
-            stripTags(item.efcyQesitm) ||
-            (item.itemIngrName ? `주성분: ${cleanIngredientClient(item.itemIngrName)}` : "") ||
-            item.chart ||
-            "상세 카드를 클릭하여 효능·복용법·성분·외형 정보를 확인하세요.";
-
-        card.innerHTML = `
-            <div class="card-img-wrap">
-                <div class="card-badges-top">
-                    <span class="otc-badge ${otcClass}">${escapeHtml(otcText)}</span>
-                </div>
-                ${imageMarkup}
-            </div>
-            <div class="card-body">
-                <span class="card-corp">${escapeHtml(item.entpName || "제조사 미표기")} ${
-                    item.itemSeq ? `· #${escapeHtml(item.itemSeq)}` : ""
-                }</span>
-                <h3 class="card-title">${escapeHtml(item.itemName)}</h3>
-                ${metaChips.length ? `<div class="grain-meta-chips">${metaChips.slice(0, 4).join("")}</div>` : ""}
-                <p class="card-efcy">${escapeHtml(summaryText)}</p>
-                <div class="card-footer-actions">
-                    <span style="font-size:0.76rem; color:#64748b; font-weight:600;">
-                        ${isPillbox ? `${escapeHtml(item.dosageTime || "복용중")}` : "상세보기 →"}
-                    </span>
-                    ${
-                        isPillbox
-                            ? `<button type="button" class="btn-pillbox-del" data-del="1">약통에서 삭제</button>`
-                            : `<button type="button" class="btn-pillbox-add" data-add="1">+ 내 약통 담기</button>`
-                    }
-                </div>
-            </div>
-        `;
-
-        const imgEl = card.querySelector(".card-img");
-        if (imgEl) {
-            imgEl.addEventListener("error", () => {
-                const wrap = card.querySelector(".card-img-wrap");
-                imgEl.remove();
-                wrap?.insertAdjacentHTML(
-                    "beforeend",
-                    buildFallbackGraphicHtml(imprintLabel, "실물 이미지 준비중")
-                );
-            });
-        }
-
-        card.addEventListener("click", (e) => {
-            if (e.target.closest("[data-add]")) {
-                e.stopPropagation();
-                addToPillbox(item);
-                return;
-            }
-            if (e.target.closest("[data-del]")) {
-                e.stopPropagation();
-                removeFromPillbox(item);
-                return;
-            }
-            openDetailModal(item);
-        });
-
-        fragment.appendChild(card);
-    });
-
-    container.appendChild(fragment);
-}
-
-/* ==========================================================================
-   의약품 상세 정보 모달
-   - 연결 백엔드 목적지: GET /api/drug-detail/ ➔ Backend/drugs/views.py :: api_drug_detail()
-     ➔ Backend/drugs/services.py :: enrich_single_drug_detail()
-   ========================================================================== */
-async function openDetailModal(initialItem) {
-    detailModal.classList.remove("hidden");
-    modalBody.innerHTML = `
-        <div class="modal-loading">
-            <p>상세 정보를 불러오는 중입니다...</p>
-        </div>
-    `;
-
-    let item = { ...initialItem };
-    try {
-        if (useDjangoBackend) {
-            const params = new URLSearchParams({
-                itemSeq: initialItem.itemSeq || "",
-                itemName: initialItem.itemName || "",
-            });
-            const resp = await fetch(`/api/drug-detail/?${params.toString()}`);
-            if (resp.ok) {
-                const enriched = await resp.json();
-                for (const [k, v] of Object.entries(enriched)) {
-                    if (
-                        v !== "" &&
-                        v !== null &&
-                        v !== undefined &&
-                        !(Array.isArray(v) && v.length === 0)
-                    ) {
-                        item[k] = v;
-                    }
-                }
-            }
-        } else {
-            const enriched = await directEnrichDrugDetail(initialItem);
-            for (const [k, v] of Object.entries(enriched)) {
-                if (v) item[k] = v;
-            }
-        }
-    } catch (e) {
-        console.warn("상세 보강 조회 실패, 기본 데이터 표시:", e);
-    }
-
-    const safeImageUrl = sanitizeHttpUrl(item.itemImage);
-    const imprintFront = item.printFront || "-";
-    const imprintBack = item.printBack || "-";
-
-    modalBody.innerHTML = `
-        <div class="modal-header-top">
-            <div class="modal-img-box">
-                ${
-                    safeImageUrl
-                        ? `<img src="${escapeHtml(safeImageUrl)}" alt="${escapeHtml(item.itemName)}" class="modal-img">`
-                        : buildFallbackGraphicHtml(`${imprintFront} / ${imprintBack}`, "실물 사진 없음")
-                }
-            </div>
-            <div class="modal-title-area">
-                <div style="margin-bottom:6px;">
-                    <span class="otc-badge ${(item.etcOtcName || "").includes("전문") ? "special" : "general"}">
-                        ${escapeHtml(item.etcOtcName || "의약품")}
-                    </span>
-                </div>
-                <h2 id="modalDialogTitle" class="modal-title">${escapeHtml(item.itemName)}</h2>
-                ${
-                    item.itemEngName
-                        ? `<p style="font-size:0.84rem; color:#64748b; margin-bottom:4px;">${escapeHtml(item.itemEngName)}</p>`
-                        : ""
-                }
-                <p class="modal-corp">
-                    제조/수입사: <b>${escapeHtml(item.entpName || "-")}</b> | 품목기준코드: <b>${escapeHtml(item.itemSeq || "-")}</b>
-                </p>
-                <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
-                    <button type="button" id="modalAddPillboxBtn" class="primary-btn" style="padding:9px 16px; border-radius:9px; font-size:0.85rem;">
-                        내 약통에 추가하기
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <div class="modal-tabs">
-            <button type="button" class="m-tab-btn active" data-mtab="mtab-easy">복약 안내</button>
-            <button type="button" class="m-tab-btn" data-mtab="mtab-grain">외형·식별 정보</button>
-            <button type="button" class="m-tab-btn" data-mtab="mtab-prmsn">성분·허가 정보</button>
-        </div>
-
-        <div id="mtab-easy" class="m-tab-pane active">
-            <div class="detail-section">
-                <h4>효능 및 효과</h4>
-                <p>${escapeHtml(
-                    stripTags(item.efcyQesitm) || "약효분류: " + (item.className || "정보 없음")
-                )}</p>
-            </div>
-            <div class="detail-section">
-                <h4>용법 및 용량 (복용법)</h4>
-                <p>${escapeHtml(
-                    stripTags(item.useMethodQesitm) ||
-                        "전문의약품이거나 별도 첨부문서 참조가 필요한 품목입니다. 의사·약사의 복약지도에 따라 복용하십시오."
-                )}</p>
-            </div>
-            ${
-                item.atpnWarnQesitm
-                    ? `<div class="detail-section" style="border-color:#fecaca; background:#fef2f2;">
-                         <h4 style="color:#dc2626;">복용 전 필수 경고</h4>
-                         <p style="color:#991b1b; font-weight:600;">${escapeHtml(stripTags(item.atpnWarnQesitm))}</p>
-                       </div>`
-                    : ""
-            }
-            <div class="detail-section">
-                <h4>사용상 주의사항</h4>
-                <p>${escapeHtml(stripTags(item.atpnQesitm) || "복용 전 첨부문서의 금기사항을 반드시 확인하십시오.")}</p>
-            </div>
-            ${
-                item.intrcQesitm
-                    ? `<div class="detail-section">
-                         <h4>병용 주의 (함께 복용 시 주의할 약·음식)</h4>
-                         <p>${escapeHtml(stripTags(item.intrcQesitm))}</p>
-                       </div>`
-                    : ""
-            }
-            ${
-                item.seQesitm
-                    ? `<div class="detail-section">
-                         <h4>발생 가능한 이상반응·부작용</h4>
-                         <p>${escapeHtml(stripTags(item.seQesitm))}</p>
-                       </div>`
-                    : ""
-            }
-            <div class="detail-section">
-                <h4>가정 내 보관 방법</h4>
-                <p>${escapeHtml(
-                    stripTags(item.depositMethodQesitm) ||
-                        item.storageMethod ||
-                        "직사광선을 피하고 서늘한 실온에 어린이 손이 닿지 않는 곳에 보관하십시오."
-                )}</p>
-            </div>
-        </div>
-
-        <div id="mtab-grain" class="m-tab-pane">
-            <div class="spec-grid">
-                <div class="spec-item">
-                    <span>성상 (외형 설명)</span>
-                    <strong>${escapeHtml(item.chart || "정보 없음")}</strong>
-                </div>
-                <div class="spec-item">
-                    <span>의약품 모양 / 제형</span>
-                    <strong>${escapeHtml(item.drugShape || "-")} / ${escapeHtml(item.formCodeName || "-")}</strong>
-                </div>
-                <div class="spec-item">
-                    <span>색상 (앞 / 뒤)</span>
-                    <strong>${escapeHtml(item.colorClass1 || "-")} ${
-                        item.colorClass2 ? `/ ${escapeHtml(item.colorClass2)}` : ""
-                    }</strong>
-                </div>
-                <div class="spec-item">
-                    <span>식별 표시 각인 (앞 / 뒤)</span>
-                    <strong style="color:#2563eb;">앞: ${escapeHtml(imprintFront)} &nbsp;|&nbsp; 뒤: ${escapeHtml(imprintBack)}</strong>
-                </div>
-                <div class="spec-item">
-                    <span>분할선 (앞 / 뒤)</span>
-                    <strong>앞: ${escapeHtml(item.lineFront || "없음")} &nbsp;|&nbsp; 뒤: ${escapeHtml(item.lineBack || "없음")}</strong>
-                </div>
-                <div class="spec-item">
-                    <span>실측 크기 (장축 × 단축 × 두께)</span>
-                    <strong>${escapeHtml(item.lengLong || "-")} mm × ${escapeHtml(item.lengShort || "-")} mm × ${escapeHtml(item.thick || "-")} mm</strong>
-                </div>
-            </div>
-        </div>
-
-        <div id="mtab-prmsn" class="m-tab-pane">
-            <div class="spec-grid">
-                <div class="spec-item">
-                    <span>전문 / 일반의약품 구분</span>
-                    <strong>${escapeHtml(item.etcOtcName || "-")}</strong>
-                </div>
-                <div class="spec-item">
-                    <span>약효분류</span>
-                    <strong>${escapeHtml(item.className || "-")}</strong>
-                </div>
-                <div class="spec-item">
-                    <span>주성분명 (영문/한글)</span>
-                    <strong>${escapeHtml(cleanIngredientClient(item.itemIngrName) || "-")}</strong>
-                </div>
-                <div class="spec-item">
-                    <span>품목허가일자 / 유효기간</span>
-                    <strong>허가일: ${escapeHtml(item.itemPermitDate || "-")} / 유효기간: ${escapeHtml(item.validTerm || "-")}</strong>
-                </div>
-                <div class="spec-item">
-                    <span>공식 저장방법</span>
-                    <strong>${escapeHtml(item.storageMethod || stripTags(item.depositMethodQesitm) || "-")}</strong>
-                </div>
-                <div class="spec-item">
-                    <span>보험코드(EDI) / ATC코드</span>
-                    <strong>EDI: ${escapeHtml(item.ediCode || "-")} / ATC: ${escapeHtml(item.atcCode || "-")}</strong>
-                </div>
-            </div>
-            ${
-                item.materialName
-                    ? `<div class="detail-section">
-                         <h4>원료성분 및 분량</h4>
-                         <p>${escapeHtml(String(item.materialName).replaceAll("|", " · "))}</p>
-                       </div>`
-                    : ""
-            }
-            ${
-                item.barCode
-                    ? `<div class="detail-section">
-                         <h4>표준 바코드</h4>
-                         <p>${escapeHtml(item.barCode)}</p>
-                       </div>`
-                    : ""
-            }
-        </div>
-    `;
-
-    const modalImg = modalBody.querySelector(".modal-img");
-    if (modalImg) {
-        modalImg.addEventListener("error", () => {
-            const box = modalBody.querySelector(".modal-img-box");
-            modalImg.remove();
-            box?.insertAdjacentHTML(
-                "beforeend",
-                buildFallbackGraphicHtml(`${imprintFront} / ${imprintBack}`, "실물 사진 없음")
-            );
-        });
-    }
-
-    modalBody.querySelectorAll(".m-tab-btn").forEach((btn) => {
-        btn.addEventListener("click", () => {
-            modalBody.querySelectorAll(".m-tab-btn").forEach((b) => b.classList.remove("active"));
-            modalBody.querySelectorAll(".m-tab-pane").forEach((p) => p.classList.remove("active"));
-            btn.classList.add("active");
-            document.getElementById(btn.dataset.mtab)?.classList.add("active");
-        });
-    });
-
-    document.getElementById("modalAddPillboxBtn")?.addEventListener("click", () => {
-        addToPillbox(item);
-    });
-}
-
-/* ==========================================================================
-   [탭 3] 내 약통 (복약 수첩) & 성분 중복 안전 점검
-   - 연결 백엔드 목적지: GET | POST | DELETE /api/pillbox/ ➔ Backend/drugs/views.py :: api_pillbox()
-   ========================================================================== */
-function getLocalPillbox() {
-    try {
-        return JSON.parse(localStorage.getItem("edrugs_pillbox") || "[]");
-    } catch {
-        return [];
-    }
-}
-
-function saveLocalPillbox(list) {
-    localStorage.setItem("edrugs_pillbox", JSON.stringify(list));
-    updatePillboxCount(list.length);
-}
-
-function buildClientSafetyReport(items) {
-    const ingrMap = new Map();
-    for (const d of items) {
-        const raw = cleanIngredientClient(d.itemIngrName || "");
-        const parts = raw
-            .replaceAll("|", "/")
-            .replaceAll(",", "/")
-            .replaceAll(";", "/")
-            .split("/")
-            .map((p) => p.trim())
-            .filter(Boolean);
-        for (const ingr of parts) {
-            const key = ingr.toLowerCase();
-            if (!ingrMap.has(key)) ingrMap.set(key, { name: ingr, drugs: [] });
-            const entry = ingrMap.get(key);
-            if (!entry.drugs.includes(d.itemName)) entry.drugs.push(d.itemName);
-        }
-    }
-    const duplicates = Array.from(ingrMap.values())
-        .filter((v) => v.drugs.length >= 2)
-        .map((v) => ({ ingredient: v.name, drugs: v.drugs }));
-    return {
-        totalSaved: items.length,
-        duplicateIngredients: duplicates,
-        hasDuplicateRisk: duplicates.length > 0,
-    };
-}
-
-async function addToPillbox(item) {
-    const dosageTime = prompt(
-        `'${item.itemName}'의 복용 시간대 또는 메모를 입력해 주세요:`,
-        "아침·저녁 식후 30분"
+/**
+ * [역할] 상세 모달 내부의 규격 정의 항목(<div class="spec-ledger-item">)을 생성합니다.
+ * [경로] renderDetailModalContent() -> specItem()
+ * [수정] 빈 값 대체 문구를 바꾸려면 fallback 기본값("-")을 수정하세요.
+ */
+function specItem(label, value, fallback = "-") {
+    const textVal =
+        value !== null && value !== undefined && String(value).trim() !== ""
+            ? String(value)
+            : fallback;
+    return el(
+        "div",
+        { className: "spec-ledger-item" },
+        el("dt", { text: label }),
+        el("dd", { text: textVal })
     );
-    if (dosageTime === null) return;
-
-    const payload = {
-        itemSeq: item.itemSeq || item.itemName,
-        itemName: item.itemName,
-        entpName: item.entpName || "",
-        itemImage: sanitizeHttpUrl(item.itemImage),
-        etcOtcName: item.etcOtcName || "",
-        className: item.className || "",
-        itemIngrName: cleanIngredientClient(item.itemIngrName || ""),
-        efcyQesitm: stripTags(item.efcyQesitm || ""),
-        useMethodQesitm: stripTags(item.useMethodQesitm || ""),
-        atpnQesitm: stripTags(item.atpnWarnQesitm || item.intrcQesitm || item.atpnQesitm || ""),
-        dosageTime: dosageTime || "수시 복용",
-    };
-
-    if (useDjangoBackend) {
-        try {
-            const resp = await fetch("/api/pillbox/", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
-            if (resp.ok) {
-                const data = await resp.json();
-                updatePillboxCount(data.pillboxCount ?? 0);
-                showToast(`'${item.itemName}'이(가) 내 약통에 저장되었습니다.`);
-                return;
-            }
-        } catch (e) {
-            console.warn(e);
-        }
-    }
-
-    const list = getLocalPillbox().filter((x) => x.itemName !== payload.itemName);
-    list.unshift({ ...payload, id: Date.now() });
-    saveLocalPillbox(list);
-    showToast(`'${item.itemName}'이(가) 내 약통에 저장되었습니다.`);
 }
 
+/**
+ * [역할] 상세 모달 내부의 서술형 텍스트 블록(.monograph-block)을 생성합니다.
+ * [경로] renderDetailModalContent() -> monographBlock()
+ * [수정] 주의사항 강조 여부를 바꾸려면 isCritical 인자를 조정하세요.
+ */
+function monographBlock(title, content, fallbackText, isCritical = false) {
+    return el(
+        "section",
+        { className: `monograph-block${isCritical ? " critical" : ""}` },
+        el("h3", { text: title }),
+        el("p", { text: content && String(content).trim() ? String(content) : fallbackText })
+    );
+}
+
+/**
+ * [역할] 병합된 3-in-1 의약품 상세 데이터를 네이티브 <dialog id="detailModal"> 본문에 렌더링합니다.
+ * [경로] openDetailModal() -> renderDetailModalContent() -> #modalBody 갱신
+ * [수정] 모달 탭 순서를 바꾸려면 tabDefs 배열과 panes 순서를 함께 변경하세요.
+ */
+function renderDetailModalContent(merged) {
+    const modalBody = document.getElementById("modalBody");
+    if (!modalBody) return;
+
+    const safeImg = sanitizeUrl(merged.itemImage);
+    const frameNode = el("div", { className: "modal-specimen-frame" });
+    if (safeImg) {
+        const img = el("img", {
+            src: safeImg,
+            alt: `${merged.itemName || "의약품"} 상세 외형 사진`,
+            width: 172,
+            height: 120,
+        });
+        img.addEventListener(
+            "error",
+            () => {
+                frameNode.replaceChildren(createFallbackMedia(merged));
+            },
+            { once: true }
+        );
+        frameNode.append(img);
+    } else {
+        frameNode.append(createFallbackMedia(merged));
+    }
+
+    const etcLabel = merged.etcOtcName || "분류 미상";
+    const isSpecial = etcLabel.includes("전문");
+
+    const heroNode = el(
+        "div",
+        { className: "modal-hero" },
+        frameNode,
+        el(
+            "div",
+            { className: "modal-summary-col" },
+            el(
+                "div",
+                { className: "dossier-meta-line" },
+                el("span", {
+                    className: `rx-tag ${isSpecial ? "special" : "general"}`,
+                    text: etcLabel,
+                }),
+                merged.itemSeq ? el("span", { className: "seq-code", text: `#${merged.itemSeq}` }) : null,
+                merged.cancelName
+                    ? el("span", { className: "seq-code", text: `상태: ${merged.cancelName}` })
+                    : null
+            ),
+            el("h2", {
+                id: "modalDialogTitle",
+                className: "modal-drug-title",
+                text: merged.itemName || "의약품 상세 명세",
+            }),
+            merged.itemEngName
+                ? el("p", { className: "modal-eng-title", text: merged.itemEngName })
+                : null,
+            el("p", {
+                className: "modal-corp-meta",
+                text: [merged.entpName || "제조사 미상", merged.className]
+                    .filter(Boolean)
+                    .join(" · "),
+            }),
+            el(
+                "div",
+                { className: "modal-hero-actions" },
+                el("button", {
+                    type: "button",
+                    className: "btn-outline",
+                    text: "+ 내 약통에 등록",
+                    onClick: () => openPillboxModal(merged, "create"),
+                })
+            )
+        )
+    );
+
+    const warnCombined = [merged.atpnWarnQesitm, merged.atpnQesitm]
+        .filter((v) => v && String(v).trim())
+        .join("\n\n");
+
+    const easyPane = el(
+        "div",
+        {
+            id: "mtab-easy",
+            className: "m-tab-pane active",
+            role: "tabpanel",
+            "aria-labelledby": "mtab-btn-easy",
+        },
+        monographBlock(
+            "효능 · 효과",
+            merged.efcyQesitm,
+            "식약처 복약 요약·허가상세 문서가 등록되어 있지 않거나 허가가 만료·취하된 품목입니다. 낱알 외형 규격 및 품목허가 탭을 함께 확인하세요."
+        ),
+        monographBlock(
+            "용법 · 용량",
+            merged.useMethodQesitm,
+            "처방전 또는 약사 복약지도에 따라 정해진 용법·용량을 준수하세요."
+        ),
+        monographBlock(
+            "복약 경고 및 주의사항",
+            warnCombined,
+            "별도로 기재된 경고 문구가 없습니다.",
+            Boolean(warnCombined)
+        ),
+        merged.intrcQesitm
+            ? monographBlock("병용 · 음식 상호작용 주의", merged.intrcQesitm, "-", true)
+            : null,
+        merged.seQesitm ? monographBlock("보고된 이상반응 (부작용)", merged.seQesitm, "-") : null,
+        monographBlock(
+            "보관 및 취급 방법",
+            merged.depositMethodQesitm || merged.storageMethod,
+            "직사광선을 피하고 서늘하고 건조한 곳에 어린이 손이 닿지 않게 보관하세요."
+        )
+    );
+
+    const dimensions = [
+        merged.lengLong ? `장축 ${merged.lengLong}mm` : "",
+        merged.lengShort ? `단축 ${merged.lengShort}mm` : "",
+        merged.thick ? `두께 ${merged.thick}mm` : "",
+    ]
+        .filter(Boolean)
+        .join(" × ");
+
+    const grainPane = el(
+        "div",
+        {
+            id: "mtab-grain",
+            className: "m-tab-pane",
+            role: "tabpanel",
+            "aria-labelledby": "mtab-btn-grain",
+            hidden: true,
+        },
+        el(
+            "dl",
+            { className: "spec-ledger-grid" },
+            specItem("의약품 기하 모양", merged.drugShape),
+            specItem("제형 구분", merged.formCodeName),
+            specItem(
+                "표면 색상 (앞 / 뒤)",
+                [merged.colorClass1, merged.colorClass2].filter(Boolean).join(" / ")
+            ),
+            specItem(
+                "식별 각인 문자 (앞 / 뒤)",
+                [merged.printFront, merged.printBack].filter(Boolean).join(" / ")
+            ),
+            specItem(
+                "분할선 (앞 / 뒤)",
+                [merged.lineFront, merged.lineBack].filter(Boolean).join(" / ")
+            ),
+            specItem("물리 규격 (mm)", dimensions)
+        ),
+        merged.chart ? monographBlock("외형 성상 설명", merged.chart, "-") : null
+    );
+
+    const prmsnPane = el(
+        "div",
+        {
+            id: "mtab-prmsn",
+            className: "m-tab-pane",
+            role: "tabpanel",
+            "aria-labelledby": "mtab-btn-prmsn",
+            hidden: true,
+        },
+        el(
+            "dl",
+            { className: "spec-ledger-grid" },
+            specItem("품목기준코드", merged.itemSeq),
+            specItem("전문 · 일반 구분", merged.etcOtcName),
+            specItem("주성분 수", merged.itemIngrCnt ? `${merged.itemIngrCnt}종` : "-"),
+            specItem("품목허가일", merged.itemPermitDate),
+            specItem("보험 EDI 코드", merged.ediCode),
+            specItem(
+                "유효기간 · 포장단위",
+                [merged.validTerm, merged.packUnit].filter(Boolean).join(" / ") ||
+                    [merged.induty, merged.bizrno].filter(Boolean).join(" / ")
+            )
+        ),
+        monographBlock(
+            "주성분 명세",
+            merged.itemIngrName || merged.materialName,
+            "주성분 상세 정보가 등록되어 있지 않습니다."
+        )
+    );
+
+    const panes = [easyPane, grainPane, prmsnPane];
+    const tabDefs = [
+        { id: "mtab-btn-easy", target: "mtab-easy", label: "01 복약 안내" },
+        { id: "mtab-btn-grain", target: "mtab-grain", label: "02 낱알 외형 규격" },
+        { id: "mtab-btn-prmsn", target: "mtab-prmsn", label: "03 품목허가 · 성분" },
+    ];
+
+    let tabButtons = [];
+    const activateTab = (nextIdx, moveFocus = false) => {
+        tabButtons.forEach((btn, i) => {
+            const isActive = i === nextIdx;
+            btn.classList.toggle("active", isActive);
+            btn.setAttribute("aria-selected", isActive ? "true" : "false");
+            btn.setAttribute("tabindex", isActive ? "0" : "-1");
+            if (isActive && moveFocus) {
+                btn.focus();
+            }
+        });
+        panes.forEach((pane, i) => {
+            const isActive = i === nextIdx;
+            pane.classList.toggle("active", isActive);
+            pane.hidden = !isActive;
+        });
+    };
+
+    tabButtons = tabDefs.map((def, idx) =>
+        el("button", {
+            id: def.id,
+            type: "button",
+            role: "tab",
+            "aria-selected": idx === 0 ? "true" : "false",
+            "aria-controls": def.target,
+            tabindex: idx === 0 ? "0" : "-1",
+            className: `m-tab-btn${idx === 0 ? " active" : ""}`,
+            text: def.label,
+            onClick: () => activateTab(idx, false),
+            onKeydown: (e) => {
+                let targetIdx = null;
+                if (e.key === "ArrowRight") targetIdx = (idx + 1) % tabDefs.length;
+                else if (e.key === "ArrowLeft") targetIdx = (idx - 1 + tabDefs.length) % tabDefs.length;
+                else if (e.key === "Home") targetIdx = 0;
+                else if (e.key === "End") targetIdx = tabDefs.length - 1;
+                if (targetIdx !== null) {
+                    e.preventDefault();
+                    activateTab(targetIdx, true);
+                }
+            },
+        })
+    );
+
+    const tabBar = el(
+        "div",
+        {
+            className: "monograph-tabs",
+            role: "tablist",
+            "aria-label": "의약품 상세 정보 구분",
+        },
+        tabButtons
+    );
+    modalBody.replaceChildren(heroNode, tabBar, ...panes);
+}
+
+/**
+ * [역할] 의약품 카드 클릭 시 네이티브 상세 모달을 열고 3대 API 실시간 병합 정보를 로드합니다.
+ * [경로] .card-trigger 클릭 -> openDetailModal() -> GET /api/drug-detail/
+ * [수정] 모달 초기 탭을 바꾸려면 renderDetailModalContent()의 active 인덱스를 변경하세요.
+ */
+async function openDetailModal(initialItem) {
+    const dialog = document.getElementById("detailModal");
+    const modalBody = document.getElementById("modalBody");
+    if (!dialog || !modalBody) return;
+
+    if (detailAbortController) detailAbortController.abort();
+    detailAbortController = new AbortController();
+
+    modalBody.replaceChildren(
+        el("h2", {
+            id: "modalDialogTitle",
+            className: "modal-drug-title",
+            text: initialItem.itemName || "의약품 상세 조회",
+        }),
+        el("p", {
+            className: "state-banner",
+            text: "식약처 공공데이터에서 복약안내·외형·허가 상세 명세를 병합하고 있습니다...",
+        })
+    );
+
+    if (!dialog.open) {
+        dialog.showModal();
+    }
+
+    const params = new URLSearchParams({
+        itemSeq: initialItem.itemSeq || "",
+        itemName: initialItem.itemName || "",
+    });
+
+    try {
+        const enriched = await apiJson(`/api/drug-detail/?${params.toString()}`, {
+            signal: detailAbortController.signal,
+        });
+        const merged = { ...initialItem };
+        for (const [k, v] of Object.entries(enriched)) {
+            if (v !== "" && v !== null && v !== undefined) {
+                merged[k] = v;
+            }
+        }
+        renderDetailModalContent(merged);
+    } catch (err) {
+        if (err.name === "AbortError") return;
+        renderDetailModalContent(initialItem);
+    }
+}
+
+/**
+ * [역할] 내 약통 등록(Create) 또는 복용시간·메모 수정(Update) 전용 모달을 엽니다.
+ * [경로] '+ 내 약통 등록' / '복용·메모 수정' 버튼 클릭 -> openPillboxModal()
+ * [수정] 기본 복용 시간대 문구를 바꾸려면 dosageInput 기본값을 수정하세요.
+ */
+function openPillboxModal(item, mode = "create") {
+    const dialog = document.getElementById("pillboxModal");
+    if (!dialog) return;
+
+    pillboxModalState = { mode, item };
+
+    const modeLabel = document.getElementById("pillboxDialogModeLabel");
+    const titleEl = document.getElementById("pillboxDialogTitle");
+    const metaEl = document.getElementById("pillboxTargetMeta");
+    const dosageInput = document.getElementById("pillboxDosageInput");
+    const memoInput = document.getElementById("pillboxMemoInput");
+    const submitBtn = document.getElementById("pillboxSubmitBtn");
+
+    if (modeLabel) {
+        modeLabel.textContent =
+            mode === "edit" ? "내 약통 복용 시간 · 메모 수정" : "내 약통 신규 복약 기록 등록";
+    }
+    if (titleEl) titleEl.textContent = item.itemName || "의약품 복약 설정";
+    if (metaEl) {
+        metaEl.textContent =
+            [
+                item.entpName || "제조사 미상",
+                item.etcOtcName || "",
+                item.itemIngrName ? `주성분: ${item.itemIngrName}` : "",
+            ]
+                .filter(Boolean)
+                .join(" · ");
+    }
+    if (dosageInput) {
+        dosageInput.value = item.dosageTime || "아침·저녁 식후 30분";
+    }
+    if (memoInput) {
+        memoInput.value = item.memo || "";
+    }
+    if (submitBtn) {
+        submitBtn.textContent = mode === "edit" ? "수정 내용 저장" : "약통에 저장";
+    }
+
+    if (!dialog.open) {
+        dialog.showModal();
+    }
+    dosageInput?.focus();
+}
+
+/**
+ * [역할] 내 약통 폼 제출 시 POST(신규 등록) 또는 PATCH(복용시간·메모 수정) 요청을 처리합니다.
+ * [경로] #pillboxForm submit -> handlePillboxSubmit() -> POST/PATCH /api/pillbox/
+ * [수정] 추가 입력 필드를 저장하려면 payload 객체와 Backend/drugs/views.py를 함께 수정하세요.
+ */
+async function handlePillboxSubmit(e) {
+    e.preventDefault();
+    const { mode, item } = pillboxModalState;
+    if (!item) return;
+
+    const dosageInput = document.getElementById("pillboxDosageInput");
+    const memoInput = document.getElementById("pillboxMemoInput");
+    const submitBtn = document.getElementById("pillboxSubmitBtn");
+    const dialog = document.getElementById("pillboxModal");
+
+    const dosageTime = (dosageInput?.value || "").trim() || "아침·저녁 식후 30분";
+    const memo = (memoInput?.value || "").trim();
+
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+        const isEdit = mode === "edit";
+        const payload = isEdit
+            ? {
+                  id: item.id,
+                  itemSeq: item.itemSeq || "",
+                  dosageTime,
+                  memo,
+              }
+            : {
+                  ...item,
+                  dosageTime,
+                  memo,
+              };
+
+        const data = await apiJson("/api/pillbox/", {
+            method: isEdit ? "PATCH" : "POST",
+            body: JSON.stringify(payload),
+        });
+
+        updatePillboxBadges(data.pillboxCount ?? 0);
+        dialog?.close("saved");
+        showToast(data.message || (isEdit ? "복용 정보가 수정되었습니다." : "내 약통에 등록되었습니다."));
+
+        const pillboxTabActive = document
+            .getElementById("tab-pillbox")
+            ?.classList.contains("active");
+        if (pillboxTabActive) {
+            await loadPillbox();
+        }
+    } catch (err) {
+        showToast(err.message || "약통 저장 중 오류가 발생했습니다.");
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
+    }
+}
+
+/**
+ * [역할] 내 약통에서 선택한 의약품 레코드를 삭제(DELETE)합니다.
+ * [경로] 내 약통 카드 '삭제' 버튼 -> removeFromPillbox() -> DELETE /api/pillbox/
+ * [수정] 삭제 전 확인 창을 띄우려면 상단에 window.confirm 조건을 추가하세요.
+ */
 async function removeFromPillbox(item) {
-    if (useDjangoBackend && item.id) {
-        await fetch(`/api/pillbox/?id=${encodeURIComponent(item.id)}`, { method: "DELETE" });
-    } else {
-        const list = getLocalPillbox().filter((x) => x.itemName !== item.itemName);
-        saveLocalPillbox(list);
+    const params = new URLSearchParams();
+    if (item.id !== undefined && item.id !== null) params.set("id", String(item.id));
+    if (item.itemSeq) params.set("itemSeq", String(item.itemSeq));
+
+    try {
+        const data = await apiJson(`/api/pillbox/?${params.toString()}`, {
+            method: "DELETE",
+        });
+        updatePillboxBadges(data.pillboxCount ?? 0);
+        showToast("내 약통에서 삭제되었습니다.");
+        await loadPillbox();
+    } catch (err) {
+        showToast(err.message || "삭제 처리 중 오류가 발생했습니다.");
     }
-    showToast("내 약통에서 삭제되었습니다.");
-    await loadPillbox();
 }
 
-async function loadPillbox() {
-    pillboxList.innerHTML = "";
-    let items = [];
-    let safetyReport = {
-        totalSaved: 0,
-        duplicateIngredients: [],
-        hasDuplicateRisk: false,
-        warnings: [],
-    };
+/**
+ * [역할] 보관 약품 간 주성분 중복 위험 경고 및 핵심 복약 주의 요약을 렌더링합니다.
+ * [경로] loadPillbox() -> renderSafetyReport() -> #safetyReportBox
+ * [수정] 주의사항 요약 노출 개수를 바꾸려면 warnings.slice(0, 5) 숫자를 변경하세요.
+ */
+function renderSafetyReport(report) {
+    const safetyBox = document.getElementById("safetyReportBox");
+    if (!safetyBox) return;
 
-    if (useDjangoBackend) {
-        try {
-            const resp = await fetch("/api/pillbox/");
-            if (resp.ok) {
-                const data = await resp.json();
-                items = data.items || [];
-                safetyReport = data.safetyReport || safetyReport;
-                updatePillboxCount(items.length);
-            }
-        } catch (e) {
-            console.warn(e);
-        }
-    } else {
-        items = getLocalPillbox();
-        safetyReport = buildClientSafetyReport(items);
-        updatePillboxCount(items.length);
-    }
-
-    if (items.length === 0) {
-        safetyReportBox.innerHTML = `
-            <div class="safety-alert safe">
-                <strong>아직 내 약통에 등록된 의약품이 없습니다.</strong><br>
-                통합 검색 결과에서 복용 중인 약의 <b>[+ 내 약통 담기]</b> 버튼을 누르면 주성분 중복 여부와 병용 주의사항을 자동으로 분석해 드립니다.
-            </div>
-        `;
+    const totalSaved = Number(report?.totalSaved || 0);
+    if (totalSaved === 0) {
+        safetyBox.replaceChildren(
+            el(
+                "div",
+                { className: "safety-card" },
+                el("h2", { text: "내 약통이 비어 있습니다" }),
+                el("p", {
+                    text: "통합 약품 탐색(01) 또는 허가·성분 색인(02) 탭에서 복용 중인 약의 '+ 내 약통 등록' 버튼을 누르면 주성분 중복 여부와 주의사항을 자동으로 분석합니다.",
+                })
+            )
+        );
         return;
     }
 
-    let dupHtml = "";
-    if (safetyReport.hasDuplicateRisk && safetyReport.duplicateIngredients.length > 0) {
-        dupHtml = safetyReport.duplicateIngredients
-            .map(
-                (d) =>
-                    `<div class="safety-alert warn">
-                        <strong>주성분 중복 복용 주의: [${escapeHtml(d.ingredient)}]</strong><br>
-                        현재 내 약통에 담긴 <b>${escapeHtml(d.drugs.join(", "))}</b>에 동일한 주성분이 포함되어 있습니다. 과량 복용 위험이 있으니 약사 또는 의사와 상담하세요!
-                    </div>`
+    const blocks = [];
+    if (report.hasDuplicateRisk && Array.isArray(report.duplicateIngredients)) {
+        const dupParagraphs = report.duplicateIngredients.map((dup) =>
+            el("p", {
+                text: `중복 주성분 [${dup.ingredient}] — 해당 약품: ${(dup.drugs || []).join(", ")}`,
+            })
+        );
+        blocks.push(
+            el(
+                "div",
+                { className: "safety-card warn" },
+                el("h2", {
+                    text: `주성분 중복 복용 주의 (${report.duplicateIngredients.length}건 감지)`,
+                }),
+                ...dupParagraphs,
+                el("p", {
+                    text: "동일 주성분이 포함된 의약품을 함께 복용하면 일일 최대 허용량을 초과할 수 있으므로 의사·약사와 상담하시기 바랍니다.",
+                })
             )
-            .join("");
-    } else {
-        dupHtml = `
-            <div class="safety-alert safe">
-                <strong>주성분 중복 점검 결과: 안전 (총 ${items.length}개 의약품 보관 중)</strong><br>
-                현재 내 약통에 담긴 의약품 간에 중복된 주성분이 발견되지 않았습니다. 각 의약품의 복용 시간대와 주의사항을 확인하세요.
-            </div>
-        `;
-    }
-
-    safetyReportBox.innerHTML = dupHtml;
-    renderDrugCards(items, pillboxList, true);
-}
-
-/* ==========================================================================
-   정적 호스팅 단독 실행 폴백 함수
-   ========================================================================== */
-function getStaticEncodedKey() {
-    const stored = localStorage.getItem("edrugs_public_api_key") || "";
-    if (stored.trim()) {
-        return stored.trim();
-    }
-    return DEFAULT_STATIC_ENCODED_KEY;
-}
-
-function normalizeDirectItems(rawItems) {
-    if (!rawItems) return [];
-    if (Array.isArray(rawItems)) return rawItems;
-    if (typeof rawItems === "object") {
-        if ("item" in rawItems) {
-            const sub = rawItems.item;
-            if (!sub) return [];
-            return Array.isArray(sub) ? sub : [sub];
-        }
-        return [rawItems];
-    }
-    return [];
-}
-
-async function fetchDirectApi(baseUrl, params = {}, signal = undefined) {
-    const encodedKey = getStaticEncodedKey();
-    const query = Object.entries(params)
-        .filter(([_, v]) => v !== "" && v !== undefined && v !== null)
-        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-        .join("&");
-    const url = `${baseUrl}?serviceKey=${encodedKey}&type=json${query ? `&${query}` : ""}`;
-    const resp = await fetch(url, { signal });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const text = await resp.text();
-    if (text.trim().startsWith("{")) {
-        const json = JSON.parse(text);
-        const body = json.body || json.response?.body || {};
-        return {
-            totalCount: Number(body.totalCount || 0),
-            items: normalizeDirectItems(body.items),
-        };
-    }
-    return { totalCount: 0, items: [] };
-}
-
-function mapGrainItem(g) {
-    return {
-        itemSeq: g.ITEM_SEQ || "",
-        itemName: g.ITEM_NAME || "",
-        entpName: g.ENTP_NAME || "",
-        chart: g.CHART || "",
-        itemImage: g.ITEM_IMAGE || "",
-        printFront: g.PRINT_FRONT || "",
-        printBack: g.PRINT_BACK || "",
-        drugShape: g.DRUG_SHAPE || "",
-        colorClass1: g.COLOR_CLASS1 || "",
-        colorClass2: g.COLOR_CLASS2 || "",
-        lineFront: g.LINE_FRONT || "",
-        lineBack: g.LINE_BACK || "",
-        lengLong: g.LENG_LONG || "",
-        lengShort: g.LENG_SHORT || "",
-        thick: g.THICK || "",
-        className: g.CLASS_NAME || "",
-        etcOtcName: g.ETC_OTC_NAME || "",
-        formCodeName: g.FORM_CODE_NAME || "",
-        itemEngName: g.ITEM_ENG_NAME || "",
-        ediCode: g.EDI_CODE || "",
-        sources: ["낱알식별"],
-    };
-}
-
-function matchLineSideClient(rawLine, selected) {
-    const val = (rawLine || "").trim();
-    return selected.some((opt) => {
-        if (opt === "없음") return val === "" || val === "없음";
-        if (opt === "+") return val.includes("+");
-        if (opt === "-") return val.includes("-");
-        if (opt === "기타") {
-            return val !== "" && val !== "없음" && !val.includes("+") && !val.includes("-");
-        }
-        return false;
-    });
-}
-
-function matchFormClient(formCodeName, chart, selected) {
-    const fc = (formCodeName || "").trim();
-    const ch = (chart || "").trim();
-    if (!fc && !ch) return false;
-
-    return selected.some((opt) => {
-        if (opt === "정제") {
-            return (
-                (fc.includes("정") &&
-                    !fc.includes("캡슐") &&
-                    !fc.includes("필름제") &&
-                    !fc.includes("붕해필름")) ||
-                (!fc && ch.includes("정") && !ch.includes("캡슐"))
-            );
-        }
-        if (opt === "경질캡슐") return fc.includes("경질") || ch.includes("경질");
-        if (opt === "연질캡슐") return fc.includes("연질") || ch.includes("연질");
-        if (opt === "구강붕해필름") {
-            return (
-                fc.includes("구강붕해") ||
-                fc.includes("붕해필름") ||
-                fc.includes("필름제") ||
-                ch.includes("구강붕해") ||
-                ch.includes("필름제")
-            );
-        }
-        return fc.includes(opt) || ch.includes(opt);
-    });
-}
-
-function matchesAppearanceClient(item, filters) {
-    if (!filters.hasAppearanceFilter) return true;
-
-    const hasGrain =
-        (item.sources || []).includes("낱알식별") ||
-        Boolean(item.drugShape || item.colorClass1 || item.formCodeName);
-    if (!hasGrain) return false;
-
-    if (filters.shapes.length) {
-        const ds = (item.drugShape || "").trim();
-        if (!ds) return false;
-        const ok = filters.shapes.some((s) =>
-            s === "기타" ? ds === "기타" || !STANDARD_SHAPES.has(ds) : ds === s
         );
-        if (!ok) return false;
-    }
-
-    if (filters.colors.length) {
-        const combined = `${item.colorClass1 || ""} ${item.colorClass2 || ""}`.trim();
-        if (!combined || !filters.colors.some((c) => combined.includes(c))) return false;
-    }
-
-    if (filters.forms.length) {
-        if (!matchFormClient(item.formCodeName, item.chart, filters.forms)) return false;
-    }
-
-    if (filters.lineFront.length) {
-        if (!matchLineSideClient(item.lineFront, filters.lineFront)) return false;
-    }
-
-    if (filters.lineBack.length) {
-        if (!matchLineSideClient(item.lineBack, filters.lineBack)) return false;
-    }
-
-    if (filters.printText) {
-        const pt = filters.printText.toLowerCase();
-        const pf = (item.printFront || "").trim().toLowerCase();
-        const pb = (item.printBack || "").trim().toLowerCase();
-        if (filters.printExact) {
-            if (pf !== pt && pb !== pt) return false;
-        } else if (!pf.includes(pt) && !pb.includes(pt)) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-async function directUnifiedSearch(keyword, field, filters, signal) {
-    if (!keyword && filters.hasAppearanceFilter) {
-        const raw = await fetchDirectApi(
-            DIRECT_ENDPOINTS.GRAIN,
-            { numOfRows: 100, pageNo: 1 },
-            signal
-        );
-        const items = raw.items
-            .map(mapGrainItem)
-            .filter((item) => matchesAppearanceClient(item, filters));
-        return {
-            items,
-            counts: {
-                mergedCount: items.length,
-                easyTotal: 0,
-                grainTotal: items.length,
-                prmsnTotal: 0,
-            },
-        };
-    }
-
-    const easyParams = { pageNo: 1, numOfRows: 60 };
-    if (field === "efcy") easyParams.efcyQesitm = keyword;
-    else if (field === "entp") easyParams.entpName = keyword;
-    else easyParams.itemName = keyword;
-
-    const grainParams = { pageNo: 1, numOfRows: 60 };
-    const prmsnParams = { pageNo: 1, numOfRows: 60 };
-    if (field === "entp") {
-        grainParams.entp_name = keyword;
-        prmsnParams.entp_name = keyword;
     } else {
-        grainParams.item_name = keyword;
-        prmsnParams.item_name = keyword;
+        blocks.push(
+            el(
+                "div",
+                { className: "safety-card safe" },
+                el("h2", {
+                    text: `주성분 중복 안전 점검 완료 (보관 약품 ${totalSaved}종)`,
+                }),
+                el("p", {
+                    text: "현재 보관 중인 의약품 사이에 겹치는 주성분이 발견되지 않았습니다. 개별 약품의 복용 시간과 주의사항을 확인하세요.",
+                })
+            )
+        );
     }
 
-    const [easyRes, grainRes, prmsnRes] = await Promise.allSettled([
-        fetchDirectApi(DIRECT_ENDPOINTS.EASY, easyParams, signal),
-        field === "efcy"
-            ? Promise.resolve({ totalCount: 0, items: [] })
-            : fetchDirectApi(DIRECT_ENDPOINTS.GRAIN, grainParams, signal),
-        field === "efcy"
-            ? Promise.resolve({ totalCount: 0, items: [] })
-            : fetchDirectApi(DIRECT_ENDPOINTS.PRMSN_LIST, prmsnParams, signal),
-    ]);
-
-    const easy = easyRes.status === "fulfilled" ? easyRes.value : { totalCount: 0, items: [] };
-    const grain = grainRes.status === "fulfilled" ? grainRes.value : { totalCount: 0, items: [] };
-    const prmsn = prmsnRes.status === "fulfilled" ? prmsnRes.value : { totalCount: 0, items: [] };
-
-    const map = new Map();
-    easy.items.forEach((e) => {
-        const key = e.itemSeq || e.itemName;
-        map.set(key, {
-            itemSeq: e.itemSeq || "",
-            itemName: e.itemName || "",
-            entpName: e.entpName || "",
-            itemImage: e.itemImage || "",
-            efcyQesitm: e.efcyQesitm || "",
-            useMethodQesitm: e.useMethodQesitm || "",
-            atpnWarnQesitm: e.atpnWarnQesitm || "",
-            atpnQesitm: e.atpnQesitm || "",
-            intrcQesitm: e.intrcQesitm || "",
-            seQesitm: e.seQesitm || "",
-            depositMethodQesitm: e.depositMethodQesitm || "",
-            sources: ["e약은요"],
-        });
-    });
-
-    grain.items.forEach((g) => {
-        const key = g.ITEM_SEQ || g.ITEM_NAME;
-        const prev = map.get(key) || { sources: [] };
-        const mapped = mapGrainItem(g);
-        map.set(key, {
-            ...mapped,
-            ...prev,
-            itemImage: prev.itemImage || mapped.itemImage,
-            chart: mapped.chart,
-            drugShape: mapped.drugShape,
-            colorClass1: mapped.colorClass1,
-            colorClass2: mapped.colorClass2,
-            printFront: mapped.printFront,
-            printBack: mapped.printBack,
-            lineFront: mapped.lineFront,
-            lineBack: mapped.lineBack,
-            formCodeName: mapped.formCodeName,
-            etcOtcName: mapped.etcOtcName,
-            className: mapped.className,
-            sources: Array.from(new Set([...(prev.sources || []), "낱알식별"])),
-        });
-    });
-
-    prmsn.items.forEach((p) => {
-        const key = p.ITEM_SEQ || p.ITEM_NAME;
-        const prev = map.get(key) || {
-            itemSeq: p.ITEM_SEQ,
-            itemName: p.ITEM_NAME,
-            entpName: p.ENTP_NAME,
-            sources: [],
-        };
-        map.set(key, {
-            ...prev,
-            itemEngName: p.ITEM_ENG_NAME || prev.itemEngName || "",
-            etcOtcName: p.SPCLTY_PBLC || prev.etcOtcName || "",
-            className: p.PRDUCT_TYPE || prev.className || "",
-            itemIngrName: cleanIngredientClient(p.ITEM_INGR_NAME) || prev.itemIngrName || "",
-            itemPermitDate: p.ITEM_PERMIT_DATE || prev.itemPermitDate || "",
-            itemImage: prev.itemImage || p.BIG_PRDT_IMG_URL || "",
-            sources: Array.from(new Set([...(prev.sources || []), "허가정보"])),
-        });
-    });
-
-    let items = Array.from(map.values());
-    if (filters.hasAppearanceFilter) {
-        items = items.filter((item) => matchesAppearanceClient(item, filters));
-        return {
-            items,
-            counts: {
-                mergedCount: items.length,
-                easyTotal: items.filter((r) => (r.sources || []).includes("e약은요")).length,
-                grainTotal: items.filter((r) => (r.sources || []).includes("낱알식별")).length,
-                prmsnTotal: items.filter((r) => (r.sources || []).includes("허가정보")).length,
-            },
-        };
+    const warnings = Array.isArray(report.warnings) ? report.warnings.slice(0, 5) : [];
+    if (warnings.length > 0) {
+        blocks.push(
+            el(
+                "div",
+                { className: "caution-digest" },
+                el("h3", { text: "보관 약품별 핵심 복약 주의 요약" }),
+                el(
+                    "ul",
+                    { className: "caution-list" },
+                    warnings.map((w) =>
+                        el("li", { text: `[${w.itemName}] ${w.warnSummary}` })
+                    )
+                )
+            )
+        );
     }
 
-    return {
-        items,
-        counts: {
-            mergedCount: items.length,
-            easyTotal: easy.totalCount,
-            grainTotal: grain.totalCount,
-            prmsnTotal: prmsn.totalCount,
-        },
-    };
+    safetyBox.replaceChildren(...blocks);
 }
 
-async function directEnrichDrugDetail(item) {
-    const dtlParams = { numOfRows: 1 };
-    if (item.itemSeq) dtlParams.item_seq = item.itemSeq;
-    else if (item.itemName) dtlParams.item_name = item.itemName.split("(")[0].trim();
+/**
+ * [역할] 내 약통 목록(GET /api/pillbox/)과 주성분 중복 안전 리포트를 불러와 화면에 그립니다.
+ * [경로] switchTab('tab-pillbox') / CRUD 완료 후 -> loadPillbox()
+ * [수정] 정렬 순서를 바꾸려면 Backend/drugs/models.py SavedDrug.Meta.ordering을 수정하세요.
+ */
+async function loadPillbox() {
+    const listEl = document.getElementById("pillboxList");
+    if (!listEl) return;
 
-    const dtlRes = await fetchDirectApi(DIRECT_ENDPOINTS.PRMSN_DTL, dtlParams);
-    if (dtlRes.items && dtlRes.items[0]) {
-        const d = dtlRes.items[0];
-        return {
-            validTerm: d.VALID_TERM || "",
-            storageMethod: d.STORAGE_METHOD || "",
-            materialName: d.MATERIAL_NAME || "",
-            barCode: d.BAR_CODE || "",
-            itemIngrName:
-                cleanIngredientClient(item.itemIngrName) ||
-                cleanIngredientClient(d.MAIN_ITEM_INGR) ||
-                "",
-            efcyQesitm: item.efcyQesitm || stripTags(d.EE_DOC_DATA || "").slice(0, 1200),
-            useMethodQesitm: item.useMethodQesitm || stripTags(d.UD_DOC_DATA || "").slice(0, 1200),
-            atpnQesitm: item.atpnQesitm || stripTags(d.NB_DOC_DATA || "").slice(0, 1500),
-        };
+    try {
+        const data = await apiJson("/api/pillbox/");
+        const items = Array.isArray(data.items) ? data.items : [];
+        updatePillboxBadges(items.length);
+        renderSafetyReport(data.safetyReport || { totalSaved: items.length });
+        listEl.replaceChildren(...items.map((item) => createDossierCard(item, true)));
+    } catch (err) {
+        const safetyBox = document.getElementById("safetyReportBox");
+        safetyBox?.replaceChildren(
+            el(
+                "div",
+                { className: "safety-card warn" },
+                el("h2", { text: "내 약통 조회 오류" }),
+                el("p", { text: err.message || "데이터를 불러오지 못했습니다." })
+            )
+        );
     }
-    return {};
 }
+
+/**
+ * [역할] 구형 브라우저를 위한 <dialog closedby="any"> 바깥 배경 클릭 닫기 폴백 및 returnValue 초기화
+ * [경로] DOMContentLoaded -> initDialogs() -> #detailModal, #pillboxModal 이벤트 등록
+ * [수정] 바깥 클릭으로 닫히지 않게 하려면 index.html에서 closedby 속성을 "closerequest"로 변경하세요.
+ */
+function initDialogs() {
+    const dialogs = document.querySelectorAll("dialog.clinical-dialog");
+    dialogs.forEach((dialog) => {
+        dialog.addEventListener("close", () => {
+            dialog.returnValue = "";
+        });
+    });
+
+    if (!("closedBy" in HTMLDialogElement.prototype)) {
+        document.querySelectorAll('dialog[closedby="any"]').forEach((dialog) => {
+            let pressedOutside = false;
+            dialog.addEventListener("pointerdown", (e) => {
+                if (e.target !== dialog) {
+                    pressedOutside = false;
+                    return;
+                }
+                const rect = dialog.getBoundingClientRect();
+                pressedOutside =
+                    e.clientX < rect.left ||
+                    e.clientX > rect.right ||
+                    e.clientY < rect.top ||
+                    e.clientY > rect.bottom;
+            });
+            dialog.addEventListener("pointerup", (e) => {
+                if (!pressedOutside || e.target !== dialog) return;
+                const rect = dialog.getBoundingClientRect();
+                const releasedOutside =
+                    e.clientX < rect.left ||
+                    e.clientX > rect.right ||
+                    e.clientY < rect.top ||
+                    e.clientY > rect.bottom;
+                if (releasedOutside) {
+                    dialog.close("dismiss");
+                }
+                pressedOutside = false;
+            });
+        });
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    initThemeSwitcher();
+    initCheckGroups();
+    initDialogs();
+    syncPillboxStatus();
+
+    document.getElementById("brandLogo")?.addEventListener("click", resetToHome);
+
+    document.querySelectorAll(".nav-btn, .m-nav-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            if (btn.dataset.tab) switchTab(btn.dataset.tab);
+        });
+    });
+
+    document.getElementById("toggleGrainFilterBtn")?.addEventListener("click", () => {
+        const body = document.getElementById("grainFilterBody");
+        const willExpand = Boolean(body?.classList.contains("collapsed"));
+        setGrainPanelExpanded(willExpand);
+    });
+
+    document.getElementById("resetGrainFilterBtn")?.addEventListener("click", () => {
+        resetGrainFilters();
+    });
+
+    document.getElementById("unifiedSearchForm")?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        runUnifiedSearch();
+    });
+
+    document.getElementById("prmsnSearchForm")?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        runPermissionSearch();
+    });
+
+    document.getElementById("pillboxForm")?.addEventListener("submit", handlePillboxSubmit);
+
+    document.getElementById("pillboxCancelBtn")?.addEventListener("click", () => {
+        document.getElementById("pillboxModal")?.close("cancel");
+    });
+
+    document.querySelectorAll(".preset-chip[data-preset]").forEach((chip) => {
+        chip.addEventListener("click", () => {
+            const dosageInput = document.getElementById("pillboxDosageInput");
+            if (dosageInput && chip.dataset.preset) {
+                dosageInput.value = chip.dataset.preset;
+                dosageInput.focus();
+            }
+        });
+    });
+});
